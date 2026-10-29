@@ -5,7 +5,7 @@ Verified 2026-10-29 on Intel macOS, CPython 3.14.7. Repository:
 
 ## Local checks
 
-- **123 passed, 1 skipped** in the complete suite. Real ONNX/recorded-footage
+- **125 passed, 1 skipped** in the complete suite. Real ONNX/recorded-footage
   tests ran. The skipped test requires explicit access to a physical camera.
 - Lint, formatting and `pip check` pass. The original vision/tracking and
   traffic intelligence algorithms, database schema and existing tests remain.

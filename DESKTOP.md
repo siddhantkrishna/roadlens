@@ -64,7 +64,8 @@ desktop saves absolute paths when importing configuration through its menu.
   overwrite existing files. All exports run off the UI thread.
 - **Settings and diagnostics:** Model/database selection, negotiated camera
   resolution/FPS, inference cap, CPU threads, detector thresholds, retention,
-  traffic windows and queue/congestion settings. Stop all sources before Apply.
+  traffic windows and queue/congestion settings. Stop all sources before Apply. Loaded numeric values retain their exact precision
+  until that field is edited; tooltips show the exact configured value.
   Diagnostics show source state, resolved device ID, FPS, inference duration,
   frame age, capture drops, reconnects, processed frames, errors and local paths.
 

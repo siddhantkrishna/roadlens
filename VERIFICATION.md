@@ -1,6 +1,6 @@
 # Current release verification
 
-The current source release passes **123 tests** with **one opt-in physical camera
+The current source release passes **125 tests** with **one opt-in physical camera
 test skipped**. See [release verification](docs/RELEASE_STATUS.md),
 [audit repairs](docs/AUDIT.md), and [model provenance](docs/MODEL_PROVENANCE.md).
 No new physical-camera or sustained thermal validation is claimed.

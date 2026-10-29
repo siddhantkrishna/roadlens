@@ -27,6 +27,7 @@ The existing detection/tracking and traffic algorithms were retained.
 | Reading/copying diagnostics | Refreshing every 60 ms cleared selections and wasted redraws | Update once per second; pause while focused; preserve readable/copyable diagnostics |
 | Scrolling a live table | Periodic rebuilds reset the scroll position | Batch updates and restore scroll position |
 | Staged secret, sanitized working copy | Release scan read clean working bytes while the index still held different bytes | Reject index/working-copy drift; regression with a constructed fixture |
+| Select a very small valid line deadband, or apply unrelated settings | Numeric widgets could clamp/round loaded configuration and silently alter it | Exact text-based line deadbands; retain loaded settings until explicitly edited, with exact-value tooltips; precision regressions |
 
 ## Verified engine behavior retained
 

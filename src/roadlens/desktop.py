@@ -222,6 +222,7 @@ class DesktopWindow(QMainWindow):
         self.report_data = None
         self.last_read_error = None
         self.last_diagnostic = 0.0
+        self.settings_changed = set()
         self.setWindowTitle("ROADLENS • Local traffic intelligence")
         self.resize(1380, 940)
         self.setMinimumSize(1040, 720)
@@ -468,6 +469,8 @@ class DesktopWindow(QMainWindow):
                 widget.setDecimals(decimals)
                 widget.setSingleStep(0.01 if decimals == 2 else 0.1)
             widget.setAccessibleName(label)
+            widget.valueChanged.connect(lambda _, key=key: self.settings_changed.add(key))
+            widget.lineEdit().textEdited.connect(lambda _, key=key: self.settings_changed.add(key))
             self.settings_fields[key] = widget
             form.addRow(label, widget)
         self.apply_button = QPushButton("Apply and save settings")
@@ -1053,12 +1056,19 @@ class DesktopWindow(QMainWindow):
     def populate_settings(self):
         self.model_edit.setText(self.config.model)
         self.database_edit.setText(self.config.analytics.database or "")
+        self.settings_changed.clear()
         for key, widget in self.settings_fields.items():
-            widget.setValue(
+            configured = (
                 getattr(self.config, key)
                 if hasattr(self.config, key)
                 else getattr(self.config.analytics, key)
             )
+            widget.setToolTip(
+                f"Exact configured value: {configured}; retained until this field is edited."
+            )
+            widget.blockSignals(True)
+            widget.setValue(max(widget.minimum(), min(widget.maximum(), configured)))
+            widget.blockSignals(False)
 
     def apply_settings(self):
         if self.any_active():
@@ -1068,12 +1078,12 @@ class DesktopWindow(QMainWindow):
             values = {
                 key: widget.value()
                 for key, widget in self.settings_fields.items()
-                if hasattr(self.config, key)
+                if hasattr(self.config, key) and key in self.settings_changed
             }
             analytics = {
                 key: widget.value()
                 for key, widget in self.settings_fields.items()
-                if not hasattr(self.config, key)
+                if not hasattr(self.config, key) and key in self.settings_changed
             }
             if not self.database_edit.text().strip():
                 raise ValueError("Choose a SQLite database path")
@@ -1089,6 +1099,7 @@ class DesktopWindow(QMainWindow):
                 self.data_dir / "desktop.json", replace(config, sources=tuple(self.sources))
             )
             self.config = config
+            self.populate_settings()
             cv2.setNumThreads(config.threads)
             self.history_session = None
             self.history_request += 1

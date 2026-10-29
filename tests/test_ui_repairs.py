@@ -180,3 +180,31 @@ def test_diagnostics_pause_while_selected_for_copying(window, qt_app):
     window.diagnostics.selectAll()
     window.update_diagnostics()
     assert window.diagnostics.textCursor().selectedText() == "Selected diagnostics stay readable"
+
+
+def test_scene_line_roundtrip_keeps_small_valid_hysteresis(qt_app):
+    from roadlens.traffic.scene import CountingLine
+
+    line = CountingLine("small-deadband", (0.1, 0.5), (0.9, 0.5), hysteresis=0.0001)
+    scene = Scene(lines=(line,))
+    editor = SceneEditor(scene, image())
+    editor.select_geometry(0)
+    assert editor.hysteresis.text() == repr(line.hysteresis)
+    editor.save()
+    assert editor.result() == QDialog.DialogCode.Accepted
+    assert editor.scene == scene
+    editor.close()
+
+
+def test_unrelated_settings_apply_preserves_precise_or_out_of_ui_range_config(window, tmp_path):
+    window.config = replace(window.config, confidence=0.354, inference_fps=60.0)
+    window.populate_settings()
+    window.database_edit.setText(str(tmp_path / "changed.sqlite3"))
+    window.apply_settings()
+    assert window.config.confidence == 0.354
+    assert window.config.inference_fps == 60.0
+    window.settings_fields["confidence"].setValue(0.36)
+    window.settings_fields["confidence"].setValue(0.35)
+    window.apply_settings()
+    assert window.config.confidence == 0.35 and window.config.inference_fps == 60.0
+    assert not window.test_errors

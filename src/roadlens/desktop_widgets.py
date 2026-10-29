@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -192,11 +191,10 @@ class SceneEditor(QDialog):
         self.name = QLineEdit("Road zone")
         self.forward = QLineEdit("forward")
         self.reverse = QLineEdit("reverse")
-        self.hysteresis = QDoubleSpinBox()
-        self.hysteresis.setDecimals(3)
-        self.hysteresis.setRange(0.001, 0.05)
-        self.hysteresis.setSingleStep(0.001)
-        self.hysteresis.setValue(0.005)
+        self.hysteresis = QLineEdit("0.005")
+        self.hysteresis.setToolTip(
+            "Normalized perpendicular distance, greater than 0 and at most 0.05"
+        )
         for label, widget in (
             ("Kind", self.kind),
             ("ID", self.identifier),
@@ -269,7 +267,7 @@ class SceneEditor(QDialog):
             self.canvas.points = [item.start, item.end]
             self.forward.setText(item.forward)
             self.reverse.setText(item.reverse)
-            self.hysteresis.setValue(item.hysteresis)
+            self.hysteresis.setText(repr(item.hysteresis))
         else:
             self.canvas.points = list(item.polygon)
             self.name.setText(item.name)
@@ -293,7 +291,7 @@ class SceneEditor(QDialog):
                     *self.canvas.points,
                     self.forward.text(),
                     self.reverse.text(),
-                    self.hysteresis.value(),
+                    float(self.hysteresis.text()),
                 )
                 updated = (
                     self.scene if geometry in self.scene.lines else self.scene.with_line(geometry)

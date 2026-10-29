@@ -1,0 +1,24 @@
+ROADLENS
+Copyright (C) 2026 ROADLENS contributors
+
+ROADLENS source code, tests, scripts and original documentation are licensed
+under the GNU Affero General Public License, version 3 only (AGPL-3.0-only).
+See LICENSE. This software is provided WITHOUT ANY WARRANTY. You may copy,
+modify and redistribute it under that license.
+
+Third-party code, model weights and media retain their own copyrights and
+license terms; they are not relicensed as original ROADLENS work:
+
+- Ultralytics YOLOv8n: upstream AGPL-3.0 / commercial licensing. The pinned ONNX
+  export is downloaded separately; it is not included in this source repository.
+- assets/bus.jpg: photograph from the Ultralytics repository under its AGPL-3.0
+  terms. The original bytes and upstream attribution are retained.
+- assets/traffic.avi: modified excerpt of Intel's sample-videos/car-detection.mp4,
+  frames 94-105, re-encoded as Motion JPEG at 12 FPS. Attribution: Intel sample
+  videos contributors. Licensed CC BY 4.0; see assets/INTEL-LICENSE.txt.
+- Documentation screenshots show the ROADLENS interface using only the above
+  Intel fixture. The underlying footage remains CC BY 4.0. No personal camera
+  feed, device identifier, private video or local filesystem path is included.
+
+See assets/README.md, docs/LICENSING.md and THIRD_PARTY.md for source links,
+modifications, hashes, dependency terms and binary-distribution requirements.

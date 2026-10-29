@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "revision": 1,
+  "overlap_group": "intel-road",
+  "zones": [
+    {"id": "road", "name": "Visible vehicle lane", "kind": "road",
+     "polygon": [[0.25, 0.0], [0.65, 0.0], [0.65, 0.8], [0.25, 0.8]]}
+  ],
+  "lines": [
+    {"id": "upper", "start": [0.25, 0.16], "end": [0.65, 0.16],
+     "forward": "image_down", "reverse": "image_up", "hysteresis": 0.003}
+  ],
+  "calibration": null
+}

@@ -1,0 +1,32 @@
+{
+  "assets/bus.jpg": {
+    "sha256": "c02019c4979c191eb739ddd944445ef408dad5679acab6fd520ef9d434bfbc63",
+    "license": "AGPL-3.0",
+    "source": "https://github.com/ultralytics/ultralytics/blob/main/ultralytics/assets/bus.jpg",
+    "description": "Unmodified public bus photograph used only for tests."
+  },
+  "assets/traffic.avi": {
+    "sha256": "6c94e5d44f5770db95dd82f5bfaa041120b7f4b7bc586ea23fad465ed0780ec5",
+    "license": "CC-BY-4.0",
+    "source": "https://github.com/intel-iot-devkit/sample-videos/blob/master/car-detection.mp4",
+    "description": "Frames 94-105, re-encoded Motion JPEG at 12 FPS."
+  },
+  "docs/images/monitor.png": {
+    "sha256": "5fce5b1401da81bc2493fc2102008ad4eb49d87656243321beaa3f3980b87167",
+    "license": "AGPL-3.0-only AND CC-BY-4.0",
+    "source": "scripts/capture_screenshots.py; assets/traffic.avi",
+    "description": "Actual ROADLENS Qt UI and real inference on the public Intel fixture."
+  },
+  "docs/images/history.png": {
+    "sha256": "f79214b47b9a875e53355a84fcef134df5b9b34926aadc52d7583273d942d2b3",
+    "license": "AGPL-3.0-only AND CC-BY-4.0",
+    "source": "scripts/capture_screenshots.py; assets/traffic.avi",
+    "description": "Actual saved counts/flow/observed dwell from the public Intel fixture."
+  },
+  "docs/images/scene-editor.png": {
+    "sha256": "fbddf8c7360db13101f2438046fb0b14be82be0469bf01c46a69d90bec2ec14a",
+    "license": "AGPL-3.0-only AND CC-BY-4.0",
+    "source": "scripts/capture_screenshots.py; assets/traffic.avi",
+    "description": "Actual scene editor over the public Intel fixture."
+  }
+}

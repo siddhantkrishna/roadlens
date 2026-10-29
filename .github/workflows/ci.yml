@@ -1,0 +1,49 @@
+name: Tests and release safety
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  intel-macos:
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Install reviewed Intel environment and security tools
+        run: |
+          python -m pip install -r requirements-macos-intel.lock
+          python -m pip install -r requirements-security.lock
+          python -m pip install --no-deps -e .
+      - name: Verify public source, privacy rules and secrets locally
+        run: python scripts/check_release.py
+      - name: Lint and format
+        run: |
+          ruff check src tests scripts
+          ruff format --check src tests scripts
+      - name: Check Python security and known dependency advisories
+        run: |
+          bandit -r src scripts -ll -ii
+          pip-audit -r requirements-macos-intel.lock --no-deps --disable-pip --timeout 60
+          python -m pip check
+      - name: Fetch checksum-verified public model explicitly for integration tests
+        run: roadlens fetch-model
+      - name: Run tests without accessing physical cameras
+        run: python -m pytest -q -m 'not hardware'
+      - name: Build source distribution and wheel locally
+        run: python -m build

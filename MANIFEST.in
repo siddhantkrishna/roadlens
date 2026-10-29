@@ -1,0 +1,23 @@
+include LICENSE NOTICE README.md CONTRIBUTING.md SECURITY.md THIRD_PARTY.md
+include DESKTOP.md TRAFFIC.md VERIFICATION.md ROADLENS.spec
+include requirements-macos-intel.lock requirements-security.lock roadlens.example.toml
+include .gitignore .gitattributes
+recursive-include src *.py *.m *.plist
+recursive-include tests *.py
+recursive-include scripts *.py
+recursive-include .github *.yml *.yaml *.md
+recursive-include docs *.md *.json
+include docs/images/monitor.png docs/images/history.png docs/images/scene-editor.png
+include assets/README.md assets/INTEL-LICENSE.txt
+include assets/traffic.scene.json assets/traffic.annotations.json
+include assets/bus.jpg assets/traffic.avi
+prune .venv
+prune artifacts
+prune data
+prune private
+prune recordings
+prune exports
+prune build
+prune dist
+prune .cache
+global-exclude *.py[cod] .DS_Store

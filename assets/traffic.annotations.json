@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "video_sha256": "6c94e5d44f5770db95dd82f5bfaa041120b7f4b7bc586ea23fad465ed0780ec5",
+  "scene_fingerprint": "27afd8f803e710cf2b5c1c8b62f4a465ad8bd7512dabfb92fc4348377cfbb867",
+  "reviewed_frames": 12,
+  "crossings": [
+    {
+      "line_id": "upper",
+      "category": "car",
+      "direction": "image_up",
+      "earliest": 0.25,
+      "latest": 0.4166666666666667
+    }
+  ],
+  "notes": "Visual review of all 12 source frames: one silver car moves upward. Its rear ground-contact anchor crosses y=0.16 between frames 3 and 5. No other vehicle crosses the finite line. This one short clip validates this crossing only, not general accuracy."
+}

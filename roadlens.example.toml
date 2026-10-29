@@ -1,0 +1,55 @@
+# Paths are relative to the working directory. Copy to roadlens.toml and edit.
+model = "models/yolov8n.onnx"
+input_size = 640
+threads = 2
+inference_fps = 8.0
+width = 1280
+height = 720
+capture_fps = 15
+confidence = 0.35
+detection_floor = 0.1
+track_activation = 0.25
+track_buffer = 20
+max_gap = 2.0
+read_timeout = 5.0
+reconnect_delay = 2.0
+diagnostics_interval = 5.0
+
+[[sources]]
+name = "webcam"
+kind = "camera"
+value = "default"
+
+# Run `roadlens cameras`, then use the iPhone's AVFoundation ID (or unique name).
+# [[sources]]
+# name = "iphone"
+# kind = "camera"
+# value = "paste-device-id-here"
+
+# [[sources]]
+# name = "recording"
+# kind = "video"
+# value = "traffic.mp4"
+# realtime = true # false processes every frame, at the speed inference allows
+
+# Set these per source to enable geometry and keep histories stable:
+# scene = "my-road.json"
+# camera_id = "fixed-road-camera"
+
+[analytics]
+# Uncomment to collect local analytics (otherwise a source.scene enables in-memory analytics).
+# database = "data/traffic.sqlite3"
+window_seconds = 10.0
+max_gap = 2.0
+stationary_speed = 0.005
+stationary_seconds = 3.0
+stalled_seconds = 30.0
+queue_min_vehicles = 3
+queue_link_distance = 0.12
+queue_seconds = 3.0
+congestion_occupancy = 0.5
+trajectory_interval = 0.5
+baseline_min_windows = 20
+baseline_max_windows = 120
+anomaly_z = 3.5
+retention_days = 7

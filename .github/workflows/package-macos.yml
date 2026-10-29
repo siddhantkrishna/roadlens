@@ -1,0 +1,36 @@
+name: Verify Intel macOS packaging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-check:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Install reviewed Intel build environment
+        run: |
+          python -m pip install -r requirements-macos-intel.lock
+          python -m pip install --no-deps -e .
+      - name: Fetch pinned model for ephemeral verification only
+        run: roadlens fetch-model
+      - name: Build and verify the local app bundle
+        run: python scripts/build_app.py
+      - name: Exercise packaged inference, traffic persistence and shutdown
+        run: |
+          dist/ROADLENS.app/Contents/MacOS/ROADLENS \
+            --data-dir "$RUNNER_TEMP/roadlens-package-check" \
+            --smoke-test "$GITHUB_WORKSPACE/assets/traffic.avi" \
+            --scene "$GITHUB_WORKSPACE/assets/traffic.scene.json"
+      # Deliberately no artifact upload or release publication: model provenance remains a gate.

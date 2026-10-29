@@ -14,7 +14,7 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
   "numpy>=2,<3",
   "opencv-python==4.13.0.92",
-  "supervision==0.25.1",
+  "supervision==0.31.2",
   "requests>=2.32,<3",
   "PySide6-Essentials>=6.8,<7",
 ]

@@ -29,6 +29,7 @@ class Result:
     inference_ms: float
     latency_ms: float
     analysis: TrafficSnapshot | None = None
+    raw_image: np.ndarray | None = None
 
 
 def annotate(
@@ -110,6 +111,7 @@ class Pipeline(threading.Thread):
         self.error: Exception | None = None
         self.paused = threading.Event()
         self.resume_generation = 0
+        self.desktop_preview = False
         self.processed = 0
         self.inference_fps = 0.0
         self.traffic: TrafficService | None = None
@@ -266,6 +268,7 @@ class Pipeline(threading.Thread):
                     inference_ms,
                     latency_ms,
                     analysis,
+                    frame.image if self.desktop_preview else None,
                 ),
                 self.stop_event,
             )

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from roadlens.desktop_design import colors_for
 from roadlens.traffic.scene import CountingLine, Scene, Zone
 
 
@@ -33,6 +34,10 @@ class Preview(QWidget):
         self.scene = Scene()
         self.points: list[tuple[float, float]] = []
         self.editable = False
+        self.show_geometry = False
+        self.empty_message = "No frames yet. Start the selected source."
+        self.point_history = []
+        self.selection_enabled = True
         self.polygon = True
         self.drag = None
         self.setMinimumSize(320, 180)
@@ -70,36 +75,41 @@ class Preview(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        c = colors_for(self)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#0b161e"))
+        painter.fillRect(self.rect(), QColor(c["preview"]))
         if self.image.isNull():
-            painter.setPen(QColor("#afc5cf"))
+            painter.setPen(QColor(c["preview_ink"]))
             painter.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter,
-                "No frames yet\nStart a source to see its actual camera or video.",
+                self.empty_message,
             )
             return
         painter.drawImage(self.image_rect(), self.image)
-        if self.editable:
+        if self.editable or self.show_geometry:
             for zone in self.scene.zones:
-                painter.setPen(QPen(QColor("#56cdb1"), 2))
+                painter.setPen(QPen(QColor(c["geometry"]), 2))
                 painter.drawPolygon(QPolygonF([self.mapped(p) for p in zone.polygon]))
-                painter.drawText(self.mapped(zone.polygon[0]), zone.id)
+                if self.editable:
+                    painter.drawText(self.mapped(zone.polygon[0]) + QPointF(6, -8), zone.name)
             for line in self.scene.lines:
-                painter.setPen(QPen(QColor("#ffca70"), 2))
+                painter.setPen(QPen(QColor(c["line"]), 2))
                 painter.drawLine(self.mapped(line.start), self.mapped(line.end))
-                painter.drawText(self.mapped(line.start), line.id)
+                if self.editable:
+                    painter.drawText(self.mapped(line.start) + QPointF(6, -8), "Counting line")
             if self.points:
-                painter.setPen(QPen(QColor("#ffffff"), 2))
+                painter.setPen(QPen(QColor(c["draft"]), 2))
                 polygon = QPolygonF([self.mapped(p) for p in self.points])
                 if self.polygon and len(self.points) > 2:
-                    painter.setBrush(QColor(70, 200, 170, 40))
+                    shade = QColor(c["geometry"])
+                    shade.setAlpha(32)
+                    painter.setBrush(shade)
                     painter.drawPolygon(polygon)
                 else:
                     painter.drawPolyline(polygon)
-                painter.setBrush(QColor("#ffffff"))
+                painter.setBrush(QColor(c["draft"]))
                 for point in self.points:
                     painter.drawEllipse(self.mapped(point), 5, 5)
 

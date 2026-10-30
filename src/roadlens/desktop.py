@@ -724,6 +724,7 @@ class DesktopWindow(QMainWindow):
             runtime = replace(source, scene=str(scene_path))
             config = replace(self.config, sources=tuple(self.sources))
             pipeline = self.pipeline_factory(runtime, config)
+            pipeline.desktop_preview = True
             self.pipelines[source.name] = pipeline
             self.latest.pop(source.name, None)
             self.received.pop(source.name, None)
@@ -856,6 +857,8 @@ class DesktopWindow(QMainWindow):
                 self.latest[source.name] = result
                 self.received[source.name] = now
                 self.panes[source.name].preview.set_image(qimage(result.image))
+                if result.raw_image is not None:
+                    self.panes[source.name].raw_image = qimage(result.raw_image)
                 if source == self.selected_source():
                     self.update_live(result)
             if pipeline.error:

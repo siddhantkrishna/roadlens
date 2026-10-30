@@ -292,3 +292,7 @@ class Foldout(QWidget):
     def set_open(self, title, opened):
         self.toggle.setText(f"{'▾' if opened else '▸'}  {title}")
         self.body.setVisible(opened)
+
+
+def colors_for(widget):
+    return DARK if widget.palette().color(QPalette.ColorRole.Window).lightness() < 128 else LIGHT

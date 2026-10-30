@@ -525,79 +525,83 @@ class SceneEditor(QDialog):
 
 
 class FlowChart(QWidget):
-    COLORS = ("#59dbc0", "#ffcc7b", "#89b5ff", "#ef93b4", "#bda8ff")
-
     def __init__(self):
         super().__init__()
-        self.windows = []
-        self.series = ""
-        self.setMinimumSize(360, 210)
-        self.setAccessibleName("Traffic flow chart, vehicles per observed minute")
-        self.setToolTip(
-            "Rates use observed time in saved measurement windows. "
-            "Gaps and unavailable rates are not plotted as zero."
-        )
+        self.windows, self.series = [], ""
+        self.setMinimumSize(270, 235)
+        self.setAccessibleName("Observed directional traffic flow")
 
     def set_windows(self, windows):
         self.windows = windows[-240:]
+        self.setAccessibleDescription(
+            "; ".join(
+                f"{w['start_time']:.1f} to {w['end_time']:.1f} seconds: {w['flow_per_minute']}"
+                for w in self.windows[-6:]
+            )
+        )
         self.update()
 
     def paintEvent(self, event):
+        c = colors_for(self)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#12232e"))
-        painter.setPen(QColor("#bfd3dc"))
-        painter.drawText(16, 24, "TRAFFIC FLOW  /  vehicles per observed minute")
+        painter.fillRect(self.rect(), QColor(c["surface"]))
+        painter.setPen(QColor(c["text"]))
+        painter.drawText(16, 24, "Traffic flow")
+        painter.setPen(QColor(c["muted"]))
+        painter.drawText(16, 43, "Vehicles per observed minute")
         points = [w for w in self.windows if w["observed_seconds"] > 0]
-        categories = [self.series] if self.series else []
-        rates = [
-            w["flow_per_minute"][key]
-            for w in points
-            for key in categories
-            if w["flow_per_minute"].get(key) is not None
-        ]
-        if not rates:
+        values = [w["flow_per_minute"].get(self.series) for w in points]
+        measured = [v for v in values if v is not None]
+        if not measured:
             painter.drawText(
-                self.rect(), Qt.AlignmentFlag.AlignCenter, "Waiting for a measured counting window"
+                self.rect().adjusted(16, 50, -16, -16),
+                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                "No measured flow yet. Configure a counting line and analyze a source.",
             )
             return
-        graph = QRectF(50, 44, self.width() - 72, self.height() - 95)
-        maximum = max(1, max(rates))
+        largest = max(1, max(measured))
+        step = 10 ** math.floor(math.log10(largest))
+        maximum = math.ceil(largest / step) * step
+        graph = QRectF(50, 65, self.width() - 72, self.height() - 120)
         left = min(w["start_time"] for w in points)
         right = max(left + 1, max(w["end_time"] for w in points))
-        painter.setPen(QPen(QColor("#334650"), 1))
         for index in range(4):
             y = graph.bottom() - graph.height() * index / 3
-            painter.setPen(QPen(QColor("#334650"), 1))
+            painter.setPen(QPen(QColor(c["rule"]), 1))
             painter.drawLine(QPointF(graph.left(), y), QPointF(graph.right(), y))
-            painter.setPen(QColor("#9db5c1"))
+            painter.setPen(QColor(c["muted"]))
             painter.drawText(
-                QRectF(0, y - 8, 44, 18), Qt.AlignmentFlag.AlignRight, f"{maximum * index / 3:.1f}"
+                QRectF(0, y - 9, 43, 18), Qt.AlignmentFlag.AlignRight, f"{maximum * index / 3:.1f}"
             )
-        painter.drawText(50, self.height() - 29, f"{left:.1f}s")
-        painter.drawText(self.width() - 80, self.height() - 29, f"{right:.1f}s")
-        for index, category in enumerate(categories):
-            painter.setPen(QPen(QColor(self.COLORS[index % len(self.COLORS)]), 2))
-            path = QPainterPath()
-            previous = None
-            for window in points:
-                value = window["flow_per_minute"].get(category)
-                if value is None:
-                    previous = None
-                    continue
-                x = graph.left() + (window["end_time"] - left) / (right - left) * graph.width()
-                y = graph.bottom() - value / maximum * graph.height()
-                if previous is None or window["start_time"] > previous + 0.001:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
-                painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
-                previous = window["end_time"]
-            painter.drawPath(path)
-            legend = painter.fontMetrics().elidedText(
-                category, Qt.TextElideMode.ElideRight, self.width() - 36
+        painter.drawText(50, self.height() - 31, f"{left:.1f} s")
+        painter.drawText(self.width() - 78, self.height() - 31, f"{right:.1f} s")
+        painter.setPen(QPen(QColor(c["chart"]), 2))
+        path, previous = QPainterPath(), None
+        for window, value in zip(points, values, strict=True):
+            if value is None:
+                previous = None
+                continue
+            point = QPointF(
+                graph.left() + (window["end_time"] - left) / (right - left) * graph.width(),
+                graph.bottom() - value / maximum * graph.height(),
             )
-            painter.drawText(18, self.height() - 8, legend)
+            if previous is None or window["start_time"] > previous + 0.001:
+                path.moveTo(point)
+            else:
+                path.lineTo(point)
+            painter.drawEllipse(point, 3, 3)
+            previous = window["end_time"]
+        painter.drawPath(path)
+        painter.setPen(QColor(c["muted"]))
+        legend = self.series.replace("/", " / ").replace("_", " ")
+        painter.drawText(
+            16,
+            self.height() - 9,
+            painter.fontMetrics().elidedText(
+                legend, Qt.TextElideMode.ElideRight, self.width() - 32
+            ),
+        )
 
 
 def scene_for_source(path: str | None) -> Scene:

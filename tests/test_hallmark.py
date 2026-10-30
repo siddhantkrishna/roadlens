@@ -103,3 +103,31 @@ def test_recorded_pause_resume_and_stop_keep_frame_integrity():
     stopped.stop()
     stopped.join(10)
     assert stopped.done.is_set() and not stopped.error
+
+
+def test_compact_desktop_overlay_leaves_header_and_footer_unpainted(monkeypatch):
+    import numpy as np
+
+    from roadlens.pipeline import annotate
+    from roadlens.tracking import Track
+
+    labels = []
+    import cv2
+
+    original = cv2.putText
+
+    def record(canvas, text, *args):
+        labels.append(text)
+        return original(canvas, text, *args)
+
+    monkeypatch.setattr(cv2, "putText", record)
+    canvas = annotate(
+        np.zeros((360, 640, 3), np.uint8),
+        [Track(12, 2, 0.87, (100, 100, 200, 200), (0, 0), (0, 0), ())],
+        "long source",
+        3,
+        "technical diagnostics",
+        compact=True,
+    )
+    assert labels == ["Car 12"]
+    assert not canvas[:40].any() and not canvas[-40:].any()

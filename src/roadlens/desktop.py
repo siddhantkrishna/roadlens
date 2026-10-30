@@ -14,10 +14,11 @@ from pathlib import Path
 
 import cv2
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices, QImage
+from PySide6.QtGui import QAction, QDesktopServices, QImage, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
@@ -38,9 +39,9 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -50,7 +51,7 @@ from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
 from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
-from roadlens.desktop_design import FocusOutline, apply_appearance, font
+from roadlens.desktop_design import FocusOutline, apply_appearance, font, label
 from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
@@ -199,8 +200,8 @@ class DesktopWindow(QMainWindow):
         self.last_diagnostic = 0.0
         self.settings_changed = set()
         self.setWindowTitle("ROADLENS • Local traffic intelligence")
-        self.resize(1380, 940)
-        self.setMinimumSize(1040, 720)
+        self.resize(1280, 850)
+        self.setMinimumSize(960, 680)
         apply_appearance(self)
         self.build_ui()
         self.focus_outline = FocusOutline(self)
@@ -227,56 +228,83 @@ class DesktopWindow(QMainWindow):
     def build_ui(self):
         content = QWidget()
         outer = QVBoxLayout(content)
-        outer.setContentsMargins(20, 16, 20, 12)
-        header = QHBoxLayout()
-        brand = QLabel("ROADLENS")
-        brand.setObjectName("brand")
-        header.addWidget(brand)
-        subtitle = QLabel("TRAFFIC INTELLIGENCE  /  ON THIS MAC")
-        subtitle.setObjectName("subtitle")
-        header.addWidget(subtitle)
-        header.addStretch()
-        self.global_status = QLabel("Ready • local CPU inference")
-        header.addWidget(self.global_status)
-        outer.addLayout(header)
-        self.tabs = QTabWidget()
-        outer.addWidget(self.tabs)
-        self.tabs.currentChanged.connect(self.refresh_history)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        chrome = QWidget()
+        chrome.setObjectName("page")
+        navigation = QHBoxLayout(chrome)
+        navigation.setContentsMargins(28, 8, 28, 0)
+        navigation.setSpacing(8)
+        brand = label("ROADLENS", "brand")
+        brand.setMinimumWidth(132)
+        navigation.addWidget(brand)
+        self.tabs = QStackedWidget()
+        self.nav_buttons = []
+        self.navigation_group = QButtonGroup(self)
+        for index, title in enumerate(("Monitor", "Analysis", "Settings")):
+            button = self.button(title, lambda _, i=index: self.tabs.setCurrentIndex(i), navigation)
+            button.setObjectName("navigation")
+            button.setCheckable(True)
+            button.setAccessibleName(f"Open {title}")
+            self.navigation_group.addButton(button, index)
+            self.nav_buttons.append(button)
+        navigation.addStretch()
+        self.global_status = label("Ready", "muted")
+        self.global_status.setAlignment(Qt.AlignmentFlag.AlignRight)
+        navigation.addWidget(self.global_status)
+        outer.addWidget(chrome)
+        outer.addWidget(self.tabs, 1)
         self.build_monitor()
         self.build_history()
         self.build_settings()
+        self.tabs.currentChanged.connect(self.navigate)
         self.setCentralWidget(content)
+        self.navigate(0)
         file_menu = self.menuBar().addMenu("File")
-        for label, shortcut, callback in (
-            ("Import video…", "Ctrl+O", self.import_video),
-            ("Import TOML configuration…", "", self.import_config),
-            ("Export selected session…", "Ctrl+E", self.export_session),
-            ("Close", "Ctrl+W", self.close),
+        for title, shortcut, callback in (
+            ("Import video…", QKeySequence.StandardKey.Open, self.import_video),
+            ("Import configuration…", None, self.import_config),
+            ("Export session…", "Ctrl+E", self.export_session),
+            ("Close", QKeySequence.StandardKey.Close, self.close),
         ):
-            action = QAction(label, self)
+            action = QAction(title, self)
             if shortcut:
                 action.setShortcut(shortcut)
             action.triggered.connect(callback)
             file_menu.addAction(action)
+        playback = self.menuBar().addMenu("Playback")
+        for title, shortcut, callback in (
+            ("Start selected source", "Ctrl+R", self.start_selected),
+            ("Stop", "Ctrl+.", self.stop_selected),
+            ("Start all sources", "Ctrl+Shift+R", self.start_all),
+            ("Stop all sources", "Ctrl+Shift+.", self.stop_all),
+        ):
+            action = playback.addAction(title)
+            action.setShortcut(shortcut)
+            action.triggered.connect(callback)
+        for index, button in enumerate(self.nav_buttons):
+            action = QAction(button.text(), self)
+            action.setShortcut(f"Ctrl+{index + 1}")
+            action.triggered.connect(lambda _, i=index: self.tabs.setCurrentIndex(i))
+            self.addAction(action)
         help_menu = self.menuBar().addMenu("Help")
-        action = help_menu.addAction("Camera permissions and Continuity Camera")
-        action.triggered.connect(self.camera_help)
-        action = help_menu.addAction("Open source license")
-        action.triggered.connect(self.open_license)
-        action = help_menu.addAction("About ROADLENS")
-        action.triggered.connect(
+        help_menu.addAction("Camera permissions", self.camera_help)
+        help_menu.addAction("Open source license", self.open_license)
+        help_menu.addAction(
+            "About ROADLENS",
             lambda: QMessageBox.about(
                 self,
                 "About ROADLENS",
-                "ROADLENS 0.1.0\nCopyright (C) 2026 ROADLENS contributors\n"
-                "AGPL-3.0-only. You may copy, modify and redistribute under that license.\n"
-                "Provided WITHOUT ANY WARRANTY. Help → Open source license shows the terms.\n"
+                "ROADLENS 0.1.0\nLocal traffic intelligence\n\n"
+                "Copyright (C) 2026 ROADLENS contributors. AGPL-3.0-only.\n"
+                "You may copy, modify and redistribute under that license.\n"
+                "Provided WITHOUT ANY WARRANTY. See Help → Open source license.\n\n"
                 "PySide6 / OpenCV DNN / ByteTrack / SQLite\n"
-                "No cloud inference. Model: Ultralytics YOLOv8n (AGPL-3.0/commercial).\n"
-                "PySide6/Qt: LGPLv3/GPLv3/commercial. See bundled licenses.",
-            )
+                "Model: Ultralytics YOLOv8n (AGPL-3.0/commercial).\n"
+                "Qt: LGPLv3/GPLv3/commercial. See bundled licenses.",
+            ),
         )
-        self.statusBar().showMessage(f"Database: {self.config.analytics.database}")
+        self.statusBar().showMessage("Choose a source to begin.")
 
     def button(self, title, callback, layout, *, primary=False):
         button = QPushButton(title)
@@ -370,7 +398,7 @@ class DesktopWindow(QMainWindow):
         details.addWidget(self.count_table)
         details.addWidget(self.zone_table)
         main.addWidget(details, 2)
-        self.tabs.addTab(page, "Monitor")
+        self.tabs.addWidget(page)
 
     def build_history(self):
         page = QWidget()
@@ -430,7 +458,7 @@ class DesktopWindow(QMainWindow):
         )
         note.setWordWrap(True)
         layout.addWidget(note)
-        self.tabs.addTab(page, "History and analysis")
+        self.tabs.addWidget(page)
 
     def build_settings(self):
         page = QWidget()
@@ -444,16 +472,16 @@ class DesktopWindow(QMainWindow):
         form.addRow("Appearance", self.appearance)
         self.model_edit = QLineEdit()
         self.database_edit = QLineEdit()
-        for label, widget, callback in (
+        for field_title, widget, callback in (
             ("ONNX model", self.model_edit, self.choose_model),
             ("SQLite database", self.database_edit, self.choose_database),
         ):
             row = QHBoxLayout()
             row.addWidget(widget)
             self.button("Browse…", callback, row)
-            form.addRow(label, row)
+            form.addRow(field_title, row)
         self.settings_fields = {}
-        for key, label, low, high, decimals in (
+        for key, field_title, low, high, decimals in (
             ("width", "Requested width", 160, 3840, 0),
             ("height", "Requested height", 120, 2160, 0),
             ("capture_fps", "Requested camera FPS", 1, 120, 0),
@@ -473,11 +501,11 @@ class DesktopWindow(QMainWindow):
             if decimals:
                 widget.setDecimals(decimals)
                 widget.setSingleStep(0.01 if decimals == 2 else 0.1)
-            widget.setAccessibleName(label)
+            widget.setAccessibleName(field_title)
             widget.valueChanged.connect(lambda _, key=key: self.settings_changed.add(key))
             widget.lineEdit().textEdited.connect(lambda _, key=key: self.settings_changed.add(key))
             self.settings_fields[key] = widget
-            form.addRow(label, widget)
+            form.addRow(field_title, widget)
         self.apply_button = QPushButton("Apply and save settings")
         self.apply_button.setObjectName("primary")
         self.apply_button.clicked.connect(self.apply_settings)
@@ -508,7 +536,7 @@ class DesktopWindow(QMainWindow):
         diagnostics.addWidget(self.diagnostics, 1)
         self.button("Camera permission help", self.camera_help, diagnostics)
         self.button("Open local data folder", self.open_data, diagnostics)
-        self.tabs.addTab(page, "Settings and diagnostics")
+        self.tabs.addWidget(page)
 
     def selected_source(self):
         index = self.source_list.currentRow()
@@ -1246,6 +1274,11 @@ class DesktopWindow(QMainWindow):
     def system_appearance_changed(self, _):
         if self.appearance.currentText() == "System":
             self.change_appearance("System", persist=False)
+
+    def navigate(self, index):
+        for position, button in enumerate(self.nav_buttons):
+            button.setChecked(position == index)
+        self.refresh_history()
 
 
 def main(argv=None):

@@ -165,6 +165,12 @@ class Preview(QWidget):
             self.points[self.drag] = (max(0, min(1, x)), max(0, min(1, y)))
         self.update()
 
+    def mouseDoubleClickEvent(self, event):
+        if self.editable and self.polygon and len(self.points) >= 3:
+            self.finished.emit()
+        else:
+            super().mouseDoubleClickEvent(event)
+
 
 class SceneEditor(QDialog):
     def __init__(self, scene: Scene, image: QImage, parent=None, *, detection_image=None):
@@ -188,6 +194,10 @@ class SceneEditor(QDialog):
         self.count_tool.setCheckable(True)
         self.count_tool.clicked.connect(self.begin_counting)
         self.tools.addWidget(self.count_tool)
+        self.road_tool = QPushButton("Measure congestion")
+        self.road_tool.setCheckable(True)
+        self.road_tool.clicked.connect(self.begin_road)
+        self.tools.addWidget(self.road_tool)
         self.tools.addStretch()
         layout.addLayout(self.tools)
         self.detections = QCheckBox("Show detections")
@@ -263,9 +273,12 @@ class SceneEditor(QDialog):
         self.items.blockSignals(True)
         self.items.clear()
         for zone in self.scene.zones:
-            self.items.addItem(f"{zone.kind} / {zone.id}")
-        for line in self.scene.lines:
-            self.items.addItem(f"line / {line.id}")
+            self.items.addItem(zone.name)
+        for index, line in enumerate(self.scene.lines, 1):
+            self.items.addItem(f"Counting line {index}")
+            self.items.item(self.items.count() - 1).setToolTip(
+                f"{line.id}: {line.forward} / {line.reverse}"
+            )
         self.items.blockSignals(False)
         self.canvas.scene = self.scene
         self.canvas.update()
@@ -383,11 +396,21 @@ class SceneEditor(QDialog):
         self.new_geometry()
         self.canvas.selection_enabled = False
         self.count_tool.setChecked(kind == "line")
-        self.instructions.setText("Click two points across the road. Drag to adjust, then Save.")
+        self.road_tool.setChecked(kind == "road")
+        if kind == "road":
+            self.name.setText(f"Road area {len(self.scene.zones) + 1}")
+        self.instructions.setText(
+            "Click two points across the road. Drag to adjust, then Save."
+            if kind == "line"
+            else "Click at least three road corners. Save or double-click to finish."
+        )
         self.canvas.setFocus()
 
     def begin_counting(self):
         self.begin_tool("line")
+
+    def begin_road(self):
+        self.begin_tool("road")
 
 
 class FlowChart(QWidget):

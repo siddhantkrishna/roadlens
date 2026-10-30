@@ -208,3 +208,25 @@ def test_counting_tool_draws_and_saves_without_geometry_fields(qt_app):
 def stable_qt_lifetime(qt_app):
     """macOS Qt must retain one QApplication across the complete UI test session."""
     yield qt_app
+
+
+def test_road_tool_saves_a_real_validated_polygon(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    editor = SceneEditor(Scene(), image())
+    editor.show()
+    qt_app.processEvents()
+    editor.road_tool.click()
+    for point in ((0.1, 0.1), (0.8, 0.1), (0.8, 0.8)):
+        QTest.mouseClick(
+            editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped(point).toPoint()
+        )
+    editor.save()
+    assert len(editor.scene.zones) == 1 and editor.scene.zones[0].kind == "road"
+    assert editor.scene.zones[0].contains((0.7, 0.2))
+    editor.close()

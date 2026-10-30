@@ -256,3 +256,21 @@ def test_scene_shape_selection_and_drag_use_letterboxed_coordinates(qt_app):
     assert abs(editor.canvas.points[0][0] - 0.2) < 0.003
     assert abs(editor.canvas.points[0][1] - 0.6) < 0.003
     editor.close()
+
+
+def test_scene_undo_restores_deleted_geometry_and_cancel_keeps_original(qt_app):
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    scene = Scene(lines=(CountingLine("line", (0.1, 0.5), (0.9, 0.5)),))
+    editor = SceneEditor(scene, image())
+    editor.select_geometry(0)
+    editor.delete()
+    assert not editor.scene.lines
+    editor.undo()
+    assert editor.scene == scene
+    editor.reject()
+    assert scene.lines[0].id == "line"
+    editor.close()

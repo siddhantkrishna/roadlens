@@ -4,7 +4,16 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -213,6 +222,7 @@ class SceneEditor(QDialog):
         self.resize(1080, 720)
         self.scene = scene
         self.selected = None
+        self.history = []
         self.clean_image = image
         self.detection_image = detection_image if detection_image is not None else image
         layout = QVBoxLayout(self)
@@ -286,8 +296,8 @@ class SceneEditor(QDialog):
         for title, callback in (
             ("New geometry", self.new_geometry),
             ("Apply geometry", self.apply_geometry),
-            ("Undo last vertex", self.undo),
-            ("Delete selected", self.delete),
+            ("Undo", self.undo),
+            ("Delete measurement", self.delete),
             ("Load scene JSON…", self.load_scene),
         ):
             button = QPushButton(title)
@@ -302,6 +312,14 @@ class SceneEditor(QDialog):
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
+        for title, shortcut, callback in (
+            ("Undo edit", QKeySequence.StandardKey.Undo, self.undo),
+            ("Delete measurement", "Ctrl+Backspace", self.delete),
+        ):
+            action = QAction(title, self)
+            action.setShortcut(shortcut)
+            action.triggered.connect(callback)
+            self.addAction(action)
         self.refresh()
 
     def refresh(self):
@@ -389,8 +407,10 @@ class SceneEditor(QDialog):
                 )
             if self.selected and self.selected[0] != collection:
                 updated = updated.without(self.selected[1], collection=self.selected[0])
+            if self.scene != updated:
+                self.history.append(self.scene)
             self.scene = updated
-            self.status.setText("Geometry validated. Save to use it in the next session.")
+            self.status.setText("Measurement added. Save to use it in the next session.")
             self.refresh()
             self.new_geometry()
             return True
@@ -399,13 +419,21 @@ class SceneEditor(QDialog):
             return False
 
     def undo(self):
-        if self.canvas.points:
+        if self.canvas.point_history:
+            self.canvas.points = self.canvas.point_history.pop()
+        elif self.canvas.points:
             self.canvas.points.pop()
+        elif self.history:
+            self.scene = self.history.pop()
+            self.refresh()
+            self.new_geometry()
+            self.status.setText("Last change undone.")
         self.canvas.drag = None
         self.canvas.update()
 
     def delete(self):
         if self.selected:
+            self.history.append(self.scene)
             self.scene = self.scene.without(self.selected[1], collection=self.selected[0])
             self.refresh()
             self.new_geometry()

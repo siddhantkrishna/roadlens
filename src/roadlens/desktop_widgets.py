@@ -1,6 +1,8 @@
 """Native, aspect-correct previews, scene editing and traffic charts."""
 
+import json
 import math
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
@@ -29,11 +31,12 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from roadlens.desktop_design import colors_for, feedback, heading, label
+from roadlens.desktop_design import Foldout, colors_for, feedback, heading, label
 from roadlens.traffic.scene import CountingLine, Scene, Zone
 
 
@@ -271,8 +274,10 @@ class SceneEditor(QDialog):
         self.items.setAccessibleName("Existing scene geometry")
         self.items.currentRowChanged.connect(self.select_geometry)
         controls.addWidget(self.items)
+        self.advanced = Foldout("Advanced")
         form = QFormLayout()
-        controls.addLayout(form)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        self.advanced.body_layout.addLayout(form)
         self.kind = QComboBox()
         self.kind.addItems(["road", "lane", "queue", "exclude", "line"])
         self.kind.currentTextChanged.connect(self.kind_changed)
@@ -285,9 +290,9 @@ class SceneEditor(QDialog):
             "Normalized perpendicular distance, greater than 0 and at most 0.05"
         )
         for field_title, widget in (
-            ("Kind", self.kind),
-            ("ID", self.identifier),
-            ("Name", self.name),
+            ("Measurement type", self.kind),
+            ("Geometry ID", self.identifier),
+            ("Area name", self.name),
             ("Forward label", self.forward),
             ("Reverse label", self.reverse),
             ("Line deadband", self.hysteresis),
@@ -302,7 +307,27 @@ class SceneEditor(QDialog):
         ):
             button = QPushButton(title)
             button.clicked.connect(callback)
-            controls.addWidget(button)
+            target = (
+                self.advanced.body_layout
+                if title in ("New geometry", "Load scene JSON…")
+                else controls
+            )
+            target.addWidget(button)
+        self.calibration_edit = QTextEdit()
+        self.calibration_edit.setAccessibleName("Calibration JSON")
+        self.calibration_edit.setMinimumHeight(150)
+        self.calibration_edit.setPlainText(
+            json.dumps(asdict(scene.calibration) if scene.calibration else None, indent=2)
+        )
+        self.original_calibration = self.calibration_edit.toPlainText()
+        form.addRow("Verified ground calibration JSON", self.calibration_edit)
+        form.addRow(
+            label(
+                "Speed needs verified calibration. Leave null without measurements.",
+                "muted",
+            )
+        )
+        controls.addWidget(self.advanced)
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -445,6 +470,10 @@ class SceneEditor(QDialog):
                 loaded = Scene.load(Path(path))
                 self.history.append(self.scene)
                 self.scene = loaded
+                self.calibration_edit.setPlainText(
+                    json.dumps(asdict(loaded.calibration) if loaded.calibration else None, indent=2)
+                )
+                self.original_calibration = self.calibration_edit.toPlainText()
                 self.refresh()
                 self.new_geometry()
                 feedback(self.status, "Scene loaded. Save to apply it to the next session.")
@@ -452,6 +481,16 @@ class SceneEditor(QDialog):
                 feedback(self.status, str(error), error=True)
 
     def save(self):
+        if self.calibration_edit.toPlainText() != self.original_calibration:
+            try:
+                values = asdict(self.scene)
+                values["calibration"] = json.loads(self.calibration_edit.toPlainText())
+                updated = Scene.from_dict(values)
+                if updated.calibration != self.scene.calibration:
+                    self.scene = replace(updated, revision=updated.revision + 1)
+            except (ValueError, TypeError, KeyError) as error:
+                self.status.setText(f"Calibration: {error}")
+                return
         if self.canvas.points and not self.apply_geometry():
             return
         self.accept()

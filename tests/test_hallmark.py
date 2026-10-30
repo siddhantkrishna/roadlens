@@ -295,3 +295,29 @@ def test_scene_load_failure_is_visible_and_preserves_geometry(qt_app, tmp_path, 
     editor.save()
     assert not editor.result() and len(editor.canvas.points) == 1
     editor.close()
+
+
+def test_calibration_changes_validate_and_survive_geometry_apply(qt_app):
+    import json
+    from dataclasses import asdict
+
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Calibration, Scene
+
+    editor = SceneEditor(Scene(), image())
+    calibration = Calibration(
+        ((0, 0), (1, 0), (1, 1), (0, 1)), ((0, 0), (10, 0), (10, 10), (0, 10)), (640, 360), True
+    )
+    editor.calibration_edit.setPlainText(json.dumps(asdict(calibration)))
+    editor.canvas.points = [(0, 0), (1, 0), (1, 1)]
+    assert editor.apply_geometry()
+    editor.save()
+    assert editor.scene.calibration == calibration
+    invalid = SceneEditor(Scene(), image())
+    invalid.calibration_edit.setPlainText('{"verified": true}')
+    invalid.save()
+    assert invalid.result() != 1 and "Calibration" in invalid.status.text()
+    editor.close()
+    invalid.close()

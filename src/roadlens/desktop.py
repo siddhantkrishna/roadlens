@@ -173,11 +173,16 @@ class SourcePane(QFrame):
         layout.addWidget(self.title)
         self.preview = Preview()
         layout.addWidget(self.preview, 1)
-        self.status = QLabel("Ready · press Start to begin")
+        self.status = QLabel("Ready")
         self.raw_image = QImage()
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        state_row = QHBoxLayout()
+        state_row.addWidget(self.status, 1)
+        self.progress = label("", "muted")
+        self.progress.setAlignment(Qt.AlignmentFlag.AlignRight)
+        state_row.addWidget(self.progress)
+        layout.addLayout(state_row)
 
 
 class DesktopWindow(QMainWindow):
@@ -828,6 +833,7 @@ class DesktopWindow(QMainWindow):
             fill_table(self.count_table, [])
             fill_table(self.zone_table, [])
             self.live_status.setText("Start the selected source to see its measurements.")
+            self.availability.setText("Configure a line for counts or a road area for congestion.")
             self.monitor_hint.setText(
                 "Press Start for detection. Configure the road to enable counting and congestion."
                 if self.selected_source()
@@ -940,9 +946,10 @@ class DesktopWindow(QMainWindow):
             if result is not None:
                 self.latest[source.name] = result
                 self.received[source.name] = now
-                self.panes[source.name].preview.set_image(qimage(result.image))
+                pane = self.panes[source.name]
+                pane.preview.set_image(qimage(result.image))
                 if result.raw_image is not None:
-                    self.panes[source.name].raw_image = qimage(result.raw_image)
+                    pane.raw_image = qimage(result.raw_image)
                 if source == self.selected_source():
                     self.update_live(result)
             if pipeline.error:
@@ -962,12 +969,22 @@ class DesktopWindow(QMainWindow):
                 and age > max(2, 2 / pipeline.config.inference_fps)
             ):
                 state = "stale / waiting for frames"
-            status = f"{state.upper()} • {pipeline.processed} frames • "
-            status += f"last frame {age:.1f}s ago" if age is not None else "waiting for first frame"
+            status = {
+                "running": "Analyzing",
+                "connecting": "Connecting…",
+                "starting": "Starting…",
+                "paused": "Paused",
+                "completed": "Completed",
+                "stopped": "Stopped",
+                "stopping": "Stopping…",
+                "failed": "FAILED",
+                "reconnecting": "Reconnecting…",
+            }.get(state, state.capitalize())
+            self.panes[source.name].progress.setText(f"{pipeline.processed} frames analyzed")
             if pipeline.error:
-                status += f" • {pipeline.error}"
-            elif pipeline.capture.last_error:
-                status += f" • {pipeline.capture.last_error}"
+                status += f": {pipeline.error}"
+            elif pipeline.capture.last_error and state not in ("completed", "stopped"):
+                status += f": {pipeline.capture.last_error}"
             self.panes[source.name].status.setText(status)
         source = self.selected_source()
         running = bool(source and self.active(source.name))
@@ -976,19 +993,38 @@ class DesktopWindow(QMainWindow):
             bool(source and self.pipelines.get(source.name) and self.pipelines[source.name].traffic)
         )
         self.stop_button.setEnabled(running)
-        self.pause_button.setEnabled(running)
+        self.pause_button.setEnabled(
+            running and not self.pipelines[source.name].stop_event.is_set() if running else False
+        )
         paused = running and self.pipelines[source.name].paused.is_set()
         self.pause_button.setText("Resume" if paused else "Pause")
-        self.pause_button.setToolTip("Live cameras stay connected while paused")
+        self.pause_button.setToolTip(
+            "Resume analysis" if paused else "Pause analysis; live cameras remain connected"
+        )
+        self.start_button.setToolTip(
+            "Stop the current analysis before restarting"
+            if running
+            else "Analyze the selected source"
+        )
+        self.edit_button.setToolTip(
+            "Stop this source to edit the road" if running else "Draw a counting line or road area"
+        )
         self.edit_button.setEnabled(bool(source) and not running)
         self.remove_button.setEnabled(bool(source) and not running)
         self.apply_button.setEnabled(not self.any_active())
         self.discover_button.setEnabled("cameras" not in self.jobs and not self.closing)
         export_ready = bool(self.history_session and self.report_data) and "export" not in self.jobs
         self.export_button.setEnabled(export_ready)
-        self.heatmap_export_button.setEnabled(export_ready)
+        self.export_button.setText("Exporting…" if "export" in self.jobs else "Export…")
+        self.export_button.setToolTip(
+            "Export the selected session" if export_ready else "Select a saved session to export"
+        )
+        self.heatmap_export_button.setEnabled(
+            export_ready and bool(self.report_data.get("heatmap"))
+        )
+        self.add_camera_button.setEnabled(self.camera_selector.currentData() is not None)
         active = sum(self.active(name) for name in self.pipelines)
-        self.global_status.setText(f"{active} active source(s) • CPU • local SQLite")
+        self.global_status.setText(f"{active} source(s) active" if active else "Ready")
         if self.tabs.currentIndex() == 2 and now - self.last_diagnostic >= 1:
             self.last_diagnostic = now
             self.update_diagnostics()
@@ -1068,6 +1104,18 @@ class DesktopWindow(QMainWindow):
                     self.statusBar().showMessage(f"History unavailable: {failure}")
                     self.last_read_error = str(failure)
             else:
+                if name == "cameras":
+                    self.discover_button.setText("Find cameras")
+                    self.camera_status.setText(f"Camera discovery failed: {failure}")
+                elif name.startswith("preview:"):
+                    source_name = name.removeprefix("preview:")
+                    if source_name in self.panes:
+                        pane = self.panes[source_name]
+                        pane.status.setText(f"Cannot open recording: {failure}")
+                        pane.preview.empty_message = (
+                            "Could not read this recording.\nCheck its path or import another file."
+                        )
+                        pane.preview.update()
                 self.show_error(failure)
 
     def reset_history(self):
@@ -1493,6 +1541,8 @@ class DesktopWindow(QMainWindow):
             self.discover_cameras()
 
     def load_video_preview(self, source):
+        self.panes[source.name].status.setText("Opening recording…")
+
         def read():
             from roadlens.capture import OpenCVCapture
 
@@ -1510,7 +1560,7 @@ class DesktopWindow(QMainWindow):
             pane.preview.set_image(image)
             pane.preview.scene = scene_for_source(source.scene)
             pane.preview.show_geometry = self.draw_geometry
-            pane.status.setText("Ready · configure the road or press Start")
+            pane.status.setText("Ready. Configure the road or press Start.")
 
         self.launch_job(f"preview:{source.name}", read, loaded)
 

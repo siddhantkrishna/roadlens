@@ -108,6 +108,8 @@ class Pipeline(threading.Thread):
         self.stop_event = self.capture.stop_event
         self.done = threading.Event()
         self.error: Exception | None = None
+        self.paused = threading.Event()
+        self.resume_generation = 0
         self.processed = 0
         self.inference_fps = 0.0
         self.traffic: TrafficService | None = None
@@ -152,11 +154,19 @@ class Pipeline(threading.Thread):
         )
         tracker = VehicleTracker(self.config)
         generation = None
+        resume_generation = 0
         frame_shape = None
         last_report = None
         count = 0
         self.capture.start()
         while not self.stop_event.is_set():
+            while self.paused.is_set() and not self.stop_event.wait(0.05):
+                pass
+            if self.stop_event.is_set():
+                return
+            if resume_generation != self.resume_generation:
+                tracker.reset()
+                resume_generation = self.resume_generation
             frame = self.capture.frames.get()
             if frame is None:
                 if self.capture.done.is_set():
@@ -269,3 +279,12 @@ class Pipeline(threading.Thread):
 
     def stop(self):
         self.capture.stop()
+
+    def set_paused(self, paused):
+        if paused:
+            self.paused.set()
+        else:
+            if self.paused.is_set() and (self.source.kind != "video" or self.source.realtime):
+                self.resume_generation += 1
+                self.capture.frames.clear()
+            self.paused.clear()

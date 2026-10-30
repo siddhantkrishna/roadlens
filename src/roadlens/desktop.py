@@ -280,7 +280,7 @@ class DesktopWindow(QMainWindow):
             file_menu.addAction(action)
         playback = self.menuBar().addMenu("Playback")
         for title, shortcut, callback in (
-            ("Start selected source", "Ctrl+R", self.start_selected),
+            ("Start / Pause / Resume", "Ctrl+R", self.toggle_playback),
             ("Stop", "Ctrl+.", self.stop_selected),
             ("Start all sources", "Ctrl+Shift+R", self.start_all),
             ("Stop all sources", "Ctrl+Shift+.", self.stop_all),
@@ -356,6 +356,7 @@ class DesktopWindow(QMainWindow):
         controls = QHBoxLayout()
         self.start_button = self.button("Start", self.start_selected, controls, primary=True)
         self.start_button.setProperty("iconName", "play")
+        self.pause_button = self.button("Pause", self.pause_selected, controls)
         self.stop_button = self.button("Stop", self.stop_selected, controls)
         self.stop_button.setProperty("iconName", "stop")
         controls.addStretch()
@@ -863,6 +864,8 @@ class DesktopWindow(QMainWindow):
                 state = "completed" if pipeline.capture.state == "eof" else "stopped"
             elif pipeline.stop_event.is_set():
                 state = "stopping"
+            elif pipeline.paused.is_set():
+                state = "paused"
             else:
                 state = pipeline.capture.state
             age = now - self.received[source.name] if source.name in self.received else None
@@ -883,6 +886,10 @@ class DesktopWindow(QMainWindow):
         running = bool(source and self.active(source.name))
         self.start_button.setEnabled(bool(source) and not running and not self.closing)
         self.stop_button.setEnabled(running)
+        self.pause_button.setEnabled(running)
+        paused = running and self.pipelines[source.name].paused.is_set()
+        self.pause_button.setText("Resume" if paused else "Pause")
+        self.pause_button.setToolTip("Live cameras stay connected while paused")
         self.edit_button.setEnabled(bool(source) and not running)
         self.remove_button.setEnabled(bool(source) and not running)
         self.apply_button.setEnabled(not self.any_active())
@@ -1415,6 +1422,20 @@ class DesktopWindow(QMainWindow):
             pane.status.setText("Ready · configure the road or press Start")
 
         self.launch_job(f"preview:{source.name}", read, loaded)
+
+    def pause_selected(self):
+        source = self.selected_source()
+        if source and self.active(source.name):
+            pipeline = self.pipelines[source.name]
+            pipeline.set_paused(not pipeline.paused.is_set())
+            self.tick()
+
+    def toggle_playback(self):
+        if source := self.selected_source():
+            if self.active(source.name):
+                self.pause_selected()
+            else:
+                self.start_selected()
 
 
 def main(argv=None):

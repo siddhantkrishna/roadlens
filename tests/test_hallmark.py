@@ -76,3 +76,30 @@ def test_video_onboarding_reads_a_real_frame_before_start(tmp_path):
     assert not window.pipelines
     assert not window.panes["Recording"].raw_image.isNull()
     window.close()
+
+
+def test_recorded_pause_resume_and_stop_keep_frame_integrity():
+    import time
+    from pathlib import Path
+
+    from roadlens.config import Config, SourceConfig
+    from roadlens.pipeline import Pipeline
+
+    root = Path(__file__).resolve().parents[1]
+    source = SourceConfig("Video", "video", str(root / "assets/traffic.avi"), False)
+    config = Config(model=str(root / "models/yolov8n.onnx"))
+    pipeline = Pipeline(source, config)
+    pipeline.set_paused(True)
+    pipeline.start()
+    time.sleep(0.1)
+    assert pipeline.processed == 0
+    pipeline.set_paused(False)
+    pipeline.join(20)
+    assert pipeline.done.is_set() and pipeline.processed == 12 and not pipeline.error
+    assert pipeline.capture.frames.dropped == 0
+    stopped = Pipeline(source, config)
+    stopped.set_paused(True)
+    stopped.start()
+    stopped.stop()
+    stopped.join(10)
+    assert stopped.done.is_set() and not stopped.error

@@ -30,6 +30,7 @@ from roadlens.traffic.scene import CountingLine, Scene, Zone
 
 class Preview(QWidget):
     finished = Signal()
+    geometry_selected = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -124,6 +125,39 @@ class Preview(QWidget):
         if point is None:
             return
         self.drag = None
+        if self.selection_enabled and not any(
+            math.dist(self.mapped(vertex).toTuple(), event.position().toTuple()) <= 10
+            for vertex in self.points
+        ):
+            objects = (*self.scene.zones, *self.scene.lines)
+            for index, item in reversed(list(enumerate(objects))):
+                if isinstance(item, CountingLine):
+                    a, b = self.mapped(item.start), self.mapped(item.end)
+                    length = (b.x() - a.x()) ** 2 + (b.y() - a.y()) ** 2
+                    t = max(
+                        0,
+                        min(
+                            1,
+                            (
+                                (event.position().x() - a.x()) * (b.x() - a.x())
+                                + (event.position().y() - a.y()) * (b.y() - a.y())
+                            )
+                            / max(1, length),
+                        ),
+                    )
+                    near = (
+                        math.dist(
+                            (a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y())),
+                            event.position().toTuple(),
+                        )
+                        <= 8
+                    )
+                else:
+                    near = item.contains(point)
+                if near:
+                    self.geometry_selected.emit(index)
+                    return
+        self.point_history.append(list(self.points))
         for index, vertex in enumerate(self.points):
             if math.dist(self.mapped(vertex).toTuple(), event.position().toTuple()) <= 10:
                 self.drag = index
@@ -210,6 +244,7 @@ class SceneEditor(QDialog):
         self.canvas.scene = scene
         self.canvas.set_image(image)
         self.canvas.finished.connect(self.apply_geometry)
+        self.canvas.geometry_selected.connect(self.select_geometry)
         body.addWidget(self.canvas)
         panel = QWidget()
         panel.setObjectName("page")
@@ -293,6 +328,8 @@ class SceneEditor(QDialog):
         self.selected = None
         self.identifier.setReadOnly(False)
         self.canvas.points.clear()
+        self.canvas.point_history.clear()
+        self.canvas.selection_enabled = True
         self.canvas.drag = None
         existing = {item.id for item in (*self.scene.zones, *self.scene.lines)}
         index = 1
@@ -319,6 +356,8 @@ class SceneEditor(QDialog):
             self.canvas.points = list(item.polygon)
             self.name.setText(item.name)
         self.canvas.drag = None
+        self.canvas.selection_enabled = True
+        self.canvas.point_history.clear()
         self.canvas.update()
 
     def apply_geometry(self):

@@ -230,3 +230,29 @@ def test_road_tool_saves_a_real_validated_polygon(qt_app):
     assert len(editor.scene.zones) == 1 and editor.scene.zones[0].kind == "road"
     assert editor.scene.zones[0].contains((0.7, 0.2))
     editor.close()
+
+
+def test_scene_shape_selection_and_drag_use_letterboxed_coordinates(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    scene = Scene(lines=(CountingLine("line", (0.1, 0.5), (0.9, 0.5)),))
+    editor = SceneEditor(scene, image())
+    editor.show()
+    qt_app.processEvents()
+    QTest.mouseClick(
+        editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped((0.5, 0.5)).toPoint()
+    )
+    assert editor.selected == ("lines", "line")
+    start = editor.canvas.mapped((0.1, 0.5)).toPoint()
+    end = editor.canvas.mapped((0.2, 0.6)).toPoint()
+    QTest.mousePress(editor.canvas, Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(editor.canvas, end)
+    QTest.mouseRelease(editor.canvas, Qt.MouseButton.LeftButton, pos=end)
+    assert abs(editor.canvas.points[0][0] - 0.2) < 0.003
+    assert abs(editor.canvas.points[0][1] - 0.6) < 0.003
+    editor.close()

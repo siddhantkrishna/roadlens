@@ -422,6 +422,15 @@ class DesktopWindow(QMainWindow):
         self.live_details = Foldout("Details")
         self.live_status = label("No source selected", "muted")
         self.live_details.body_layout.addWidget(self.live_status)
+        self.availability = label(
+            "Start a source to see which measurements are available.", "muted"
+        )
+        self.live_details.body_layout.addWidget(self.availability)
+        self.analysis_button = self.button(
+            "Open this session in Analysis",
+            self.open_current_analysis,
+            self.live_details.body_layout,
+        )
         secondary = QHBoxLayout()
         for title in ("Visible tracks", "Queued vehicles"):
             secondary.addWidget(label(title, "muted"))
@@ -826,6 +835,21 @@ class DesktopWindow(QMainWindow):
             )
             return
         snapshot = result.analysis
+        missing = []
+        if snapshot is not None:
+            if not snapshot.counting_available:
+                missing.append("Vehicle counting needs a line across the road.")
+            if not snapshot.zones:
+                missing.append("Congestion needs a road area.")
+            if not any(z.queued_vehicles is not None for z in snapshot.zones):
+                missing.append("Queue size needs a queue area, configured in Advanced.")
+            if not any(speed.mps is not None for speed in snapshot.speeds):
+                missing.append(
+                    "Physical speed: "
+                    + (snapshot.speed_unavailable_reason or "more observations needed")
+                    + "."
+                )
+        self.availability.setText("\n".join(missing) or "Configured measurements are available.")
         self.metrics["Traffic flow"].setText("—")
         self.metrics["Traffic flow"].setToolTip(
             "A counting line and a saved observation window are required"
@@ -948,6 +972,9 @@ class DesktopWindow(QMainWindow):
         source = self.selected_source()
         running = bool(source and self.active(source.name))
         self.start_button.setEnabled(bool(source) and not running and not self.closing)
+        self.analysis_button.setEnabled(
+            bool(source and self.pipelines.get(source.name) and self.pipelines[source.name].traffic)
+        )
         self.stop_button.setEnabled(running)
         self.pause_button.setEnabled(running)
         paused = running and self.pipelines[source.name].paused.is_set()
@@ -1540,6 +1567,15 @@ class DesktopWindow(QMainWindow):
                     f"Counting line {line}. "
                     f"{latest['observed_seconds']:.1f}s observed in the latest window."
                 )
+
+    def open_current_analysis(self):
+        source = self.selected_source()
+        pipeline = self.pipelines.get(source.name) if source else None
+        if pipeline and pipeline.traffic and pipeline.traffic.session_id:
+            self.history_session = pipeline.traffic.session_id
+            self.history_request += 1
+            self.tabs.setCurrentIndex(1)
+            self.refresh_history()
 
 
 def main(argv=None):

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import cv2
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices, QFont, QImage
+from PySide6.QtGui import QAction, QDesktopServices, QImage
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -50,6 +50,7 @@ from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
 from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
+from roadlens.desktop_design import font
 from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
@@ -189,7 +190,7 @@ class SourcePane(QFrame):
         self.setObjectName("card")
         layout = QVBoxLayout(self)
         self.title = QLabel(source.name)
-        self.title.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
+        self.title.setFont(font("section", bold=True))
         self.title.setWordWrap(True)
         self.title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.title.setToolTip(source.name)
@@ -1239,7 +1240,7 @@ def main(argv=None):
     app.setApplicationName("ROADLENS")
     app.setOrganizationName("ROADLENS")
     app.setApplicationVersion("0.1.0")
-    app.setFont(QFont("Helvetica", 12))
+    app.setFont(font())
     args.data_dir = args.data_dir.expanduser().resolve()
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     configure_logging("INFO", args.data_dir / "logs/roadlens.log")

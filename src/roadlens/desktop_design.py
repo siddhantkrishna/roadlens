@@ -37,3 +37,36 @@ def contrast(first, second):
 
     values = sorted((luminance(first), luminance(second)))
     return (values[1] + 0.05) / (values[0] + 0.05)
+
+
+# Logical pixels scale with Qt's device-pixel ratio; no bundled or remote font.
+TYPE = {"body": 14, "caption": 12, "section": 16, "title": 23, "metric": 29}
+SPACE = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "page": 28}
+DIMENSIONS = {"control": 34, "navigation": 38, "radius": 4, "row": 34, "icon": 18}
+
+
+def font(role="body", *, bold=False):
+    from PySide6.QtGui import QFont, QFontDatabase
+
+    result = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+    result.setPixelSize(TYPE[role])
+    result.setWeight(QFont.Weight.DemiBold if bold else QFont.Weight.Normal)
+    return result
+
+
+def label(text, role="", *, wrap=True):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLabel, QSizePolicy
+
+    result = QLabel(text)
+    result.setObjectName(role)
+    result.setTextFormat(Qt.TextFormat.PlainText)
+    result.setWordWrap(wrap)
+    result.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    return result
+
+
+def heading(layout, title, description=None):
+    layout.addWidget(label(title, "pageTitle"))
+    if description:
+        layout.addWidget(label(description, "subtitle"))

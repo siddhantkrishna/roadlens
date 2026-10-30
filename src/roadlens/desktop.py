@@ -53,7 +53,13 @@ from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
 from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
 from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, font, heading, label
-from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
+from roadlens.desktop_widgets import (
+    ClassificationChart,
+    FlowChart,
+    Preview,
+    SceneEditor,
+    scene_for_source,
+)
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
 
@@ -511,6 +517,7 @@ class DesktopWindow(QMainWindow):
         flow_controls.addWidget(self.flow_series, 1)
         analysis.addLayout(flow_controls)
         charts = QGridLayout()
+        self.analysis_charts = charts
         charts.setSpacing(16)
         self.chart = FlowChart()
         self.heatmap = Preview()
@@ -521,6 +528,8 @@ class DesktopWindow(QMainWindow):
         heatmap_box.addWidget(self.heatmap, 1)
         charts.addWidget(self.chart, 0, 0)
         charts.addLayout(heatmap_box, 0, 1)
+        self.classification_chart = ClassificationChart()
+        charts.addWidget(self.classification_chart, 1, 0, 1, 2)
         analysis.addLayout(charts)
         self.records = Foldout("Crossings, queues and anomalies")
         self.history_counts = table(["Line", "Vehicle", "Direction", "Crossings"])
@@ -1153,6 +1162,7 @@ class DesktopWindow(QMainWindow):
             LOG.exception("Desktop task %s completion failed", name)
             if name == "history":
                 self.report_data = None
+                self.classification_chart.set_data({})
                 self.analysis_scroll.hide()
                 self.analysis_empty.setText(
                     "Session data could not be read. Check the database in Settings."
@@ -1269,6 +1279,7 @@ class DesktopWindow(QMainWindow):
         self.flow_series.blockSignals(False)
         self.chart.series = selected_series
         self.chart.set_windows(data["windows"])
+        self.classification_chart.set_data(data)
         image, maximum = heatmap_image(data["heatmap"])
         self.heatmap.set_image(image)
         self.heatmap_caption.setText(

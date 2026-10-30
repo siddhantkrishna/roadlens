@@ -606,3 +606,58 @@ class FlowChart(QWidget):
 
 def scene_for_source(path: str | None) -> Scene:
     return Scene.load(Path(path)) if path else Scene()
+
+
+class ClassificationChart(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.totals = {}
+        self.setMinimumSize(270, 220)
+        self.setAccessibleName("Vehicle classes by crossing events")
+        self.setToolTip(
+            "Crossing events by vehicle class. A vehicle can cross multiple counting lines."
+        )
+
+    def set_data(self, data):
+        self.totals = {}
+        for row in data.get("counts", []):
+            self.totals[row["category"]] = self.totals.get(row["category"], 0) + row["count"]
+        self.setAccessibleDescription(
+            "; ".join(f"{name}: {value}" for name, value in self.totals.items())
+        )
+        self.update()
+
+    def paintEvent(self, event):
+        from roadlens.desktop_design import font
+
+        c = colors_for(self)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor(c["surface"]))
+        painter.setPen(QColor(c["text"]))
+        painter.drawText(16, 24, "Vehicle classes")
+        painter.setPen(QColor(c["muted"]))
+        painter.drawText(16, 43, "Crossing events")
+        if not self.totals:
+            painter.drawText(
+                self.rect(), Qt.AlignmentFlag.AlignCenter, "No crossing events recorded"
+            )
+            return
+        rows = sorted(self.totals.items(), key=lambda row: (-row[1], row[0]))
+        if len(rows) == 1:
+            name, count = rows[0]
+            painter.setFont(font("metric"))
+            painter.setPen(QColor(c["text"]))
+            painter.drawText(16, 100, str(count))
+            painter.setFont(font())
+            painter.drawText(16, 125, name.title())
+            return
+        maximum = max(1, max(self.totals.values()))
+        for index, (name, count) in enumerate(rows):
+            y = 62 + index * 28
+            painter.setPen(QColor(c["text"]))
+            painter.drawText(16, y + 13, name.title())
+            painter.fillRect(
+                QRectF(100, y, (self.width() - 165) * count / maximum, 14), QColor(c["chart"])
+            )
+            painter.drawText(self.width() - 45, y + 13, str(count))

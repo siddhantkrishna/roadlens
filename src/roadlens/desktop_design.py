@@ -4,6 +4,10 @@ Critique: hierarchy and restraint lead; real footage is the signature.
 Web scaffolds/render lint are replaced by Qt layout, contrast and screenshot checks.
 """
 
+from PySide6.QtCore import QObject, Qt
+from PySide6.QtGui import QPainter, QPalette, QPen
+from PySide6.QtWidgets import QApplication, QFocusFrame, QWidget
+
 LIGHT = {
     "background": "#f3f4ef",
     "surface": "#fafbf7",
@@ -239,3 +243,28 @@ def icon(name, color):
     painter.end()
     result = QIcon(pixmap)
     return result
+
+
+class FocusFrame(QFocusFrame):
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(self.palette().color(QPalette.ColorRole.Link), 2))
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 4, 4)
+
+
+class FocusOutline(QObject):
+    """A native focus overlay never changes a field's border or layout dimensions."""
+
+    def __init__(self, owner):
+        super().__init__(owner)
+        self.owner = owner
+        self.frame = FocusFrame(owner)
+        self.frame.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        QApplication.instance().focusChanged.connect(self.changed)
+
+    def changed(self, previous, current):
+        if isinstance(current, QWidget) and self.owner.isAncestorOf(current):
+            self.frame.setWidget(current)
+        else:
+            self.frame.setWidget(None)

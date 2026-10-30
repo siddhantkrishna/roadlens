@@ -50,7 +50,7 @@ from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
 from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
-from roadlens.desktop_design import apply_appearance, font
+from roadlens.desktop_design import FocusOutline, apply_appearance, font
 from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
@@ -129,6 +129,8 @@ def table(headers):
     widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     widget.setAlternatingRowColors(False)
+    widget.verticalHeader().setDefaultSectionSize(34)
+    widget.setShowGrid(False)
     return widget
 
 
@@ -162,6 +164,7 @@ class SourcePane(QFrame):
         layout = QVBoxLayout(self)
         self.title = QLabel(source.name)
         self.title.setFont(font("section", bold=True))
+        self.title.setTextFormat(Qt.TextFormat.PlainText)
         self.title.setWordWrap(True)
         self.title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.title.setToolTip(source.name)
@@ -200,6 +203,7 @@ class DesktopWindow(QMainWindow):
         self.setMinimumSize(1040, 720)
         apply_appearance(self)
         self.build_ui()
+        self.focus_outline = FocusOutline(self)
         self.sync_sources()
         self.populate_settings()
         appearance = "System"

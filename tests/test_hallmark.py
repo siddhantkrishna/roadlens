@@ -33,3 +33,27 @@ def test_svg_icons_render_for_every_action():
     assert app
     for name in PATHS:
         assert not icon(name, LIGHT["text"]).pixmap(36, 36).isNull()
+
+
+def test_focus_outline_preserves_input_dimensions():
+    from PySide6.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
+
+    from roadlens.desktop_design import FocusOutline, apply_appearance
+
+    app = QApplication.instance() or QApplication([])
+    window = QWidget()
+    form = QVBoxLayout(window)
+    first, second = QLineEdit(), QLineEdit()
+    form.addWidget(first)
+    form.addWidget(second)
+    outline = FocusOutline(window)
+    apply_appearance(window)
+    window.show()
+    app.processEvents()
+    before = first.size()
+    second.setFocus()
+    first.setFocus()
+    app.processEvents()
+    assert outline.frame.widget() == first
+    assert first.size() == before
+    window.close()

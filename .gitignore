@@ -88,3 +88,6 @@ logs/
 !docs/images/monitor.png
 !docs/images/history.png
 !docs/images/scene-editor.png
+
+# Local design audit captures and skill bookkeeping
+.hallmark/

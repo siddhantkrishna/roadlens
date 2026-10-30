@@ -202,6 +202,16 @@ class DesktopWindow(QMainWindow):
         self.build_ui()
         self.sync_sources()
         self.populate_settings()
+        appearance = "System"
+        try:
+            appearance = json.loads((self.data_dir / "appearance.json").read_text())["appearance"]
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        self.appearance.setCurrentText(
+            appearance if appearance in ("System", "Light", "Dark") else "System"
+        )
+        self.change_appearance(self.appearance.currentText(), persist=False)
+        QApplication.styleHints().colorSchemeChanged.connect(self.system_appearance_changed)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(60)
@@ -409,6 +419,11 @@ class DesktopWindow(QMainWindow):
         layout = QHBoxLayout(page)
         group = QGroupBox("Camera and inference settings • apply between sessions")
         form = QFormLayout(group)
+        self.appearance = QComboBox()
+        self.appearance.addItems(["System", "Light", "Dark"])
+        self.appearance.setAccessibleName("Appearance")
+        self.appearance.currentTextChanged.connect(self.change_appearance)
+        form.addRow("Appearance", self.appearance)
         self.model_edit = QLineEdit()
         self.database_edit = QLineEdit()
         for label, widget, callback in (
@@ -1194,6 +1209,25 @@ class DesktopWindow(QMainWindow):
             self.persist()
             self.timer.stop()
             event.accept()
+
+    def change_appearance(self, appearance, *, persist=True):
+        dark = appearance == "Dark" or (
+            appearance == "System"
+            and QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
+        )
+        apply_appearance(self, dark)
+        if persist:
+            try:
+                self.data_dir.mkdir(parents=True, exist_ok=True)
+                (self.data_dir / "appearance.json").write_text(
+                    json.dumps({"appearance": appearance})
+                )
+            except OSError as error:
+                self.statusBar().showMessage(f"Could not save appearance: {error}")
+
+    def system_appearance_changed(self, _):
+        if self.appearance.currentText() == "System":
+            self.change_appearance("System", persist=False)
 
 
 def main(argv=None):

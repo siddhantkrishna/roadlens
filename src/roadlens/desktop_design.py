@@ -27,6 +27,29 @@ LIGHT = {
 }
 
 
+DARK = {
+    "background": "#20261f",
+    "surface": "#2a3228",
+    "raised": "#343e32",
+    "text": "#edf1e7",
+    "muted": "#b9c3af",
+    "border": "#93a088",
+    "rule": "#495442",
+    "accent": "#b3cdb3",
+    "accent_ink": "#202b21",
+    "selection": "#3d503d",
+    "disabled": "#9aa58f",
+    "focus": "#b3cdb3",
+    "preview": "#1e241d",
+    "preview_ink": "#e5ecdf",
+    "geometry": "#c8dac3",
+    "line": "#e7d8ad",
+    "draft": "#f1f4ec",
+    "chart": "#b3cdb3",
+    "error": "#f0ada4",
+}
+
+
 def contrast(first, second):
     """WCAG relative luminance, used for text and interactive-edge verification."""
 
@@ -75,7 +98,7 @@ def heading(layout, title, description=None):
 def apply_appearance(widget, dark=False):
     from PySide6.QtGui import QColor, QPalette
 
-    colors = LIGHT
+    colors = DARK if dark else LIGHT
     palette = QPalette(widget.palette())
     for role, key in (
         (QPalette.ColorRole.Window, "background"),

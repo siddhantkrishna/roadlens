@@ -70,3 +70,107 @@ def heading(layout, title, description=None):
     layout.addWidget(label(title, "pageTitle"))
     if description:
         layout.addWidget(label(description, "subtitle"))
+
+
+def apply_appearance(widget, dark=False):
+    from PySide6.QtGui import QColor, QPalette
+
+    colors = LIGHT
+    palette = QPalette(widget.palette())
+    for role, key in (
+        (QPalette.ColorRole.Window, "background"),
+        (QPalette.ColorRole.Base, "surface"),
+        (QPalette.ColorRole.AlternateBase, "raised"),
+        (QPalette.ColorRole.Button, "surface"),
+        (QPalette.ColorRole.WindowText, "text"),
+        (QPalette.ColorRole.Text, "text"),
+        (QPalette.ColorRole.ButtonText, "text"),
+        (QPalette.ColorRole.Highlight, "selection"),
+        (QPalette.ColorRole.HighlightedText, "text"),
+        (QPalette.ColorRole.Mid, "rule"),
+        (QPalette.ColorRole.Link, "accent"),
+        (QPalette.ColorRole.PlaceholderText, "muted"),
+    ):
+        palette.setColor(role, QColor(colors[key]))
+    widget.setPalette(palette)
+    c = colors
+    widget.setStyleSheet(f"""
+        QWidget {{ color: {c["text"]}; font-size: {TYPE["body"]}px; }}
+        QMainWindow, QDialog, QWidget#page {{ background: {c["background"]}; }}
+        QLabel#brand {{ font-size: {TYPE["section"]}px; font-weight: 600; }}
+        QLabel#pageTitle {{ font-size: {TYPE["title"]}px; font-weight: 600; }}
+        QLabel#subtitle, QLabel#muted {{ color: {c["muted"]}; }}
+        QLabel#metric {{ font-size: {TYPE["metric"]}px; font-weight: 500; }}
+        QFrame#metricStrip {{ border-top: 1px solid {c["rule"]};
+            border-bottom: 1px solid {c["rule"]};
+            }}
+        QFrame#sourcePane {{ background: transparent; }}
+        QGroupBox {{ border: 0; margin-top: 20px; }}
+        QGroupBox::title {{ subcontrol-origin: margin; padding: 0; }}
+        QPushButton {{ background: {c["surface"]}; border: 1px solid {c["border"]};
+            border-radius: {DIMENSIONS["radius"]}px; padding: 6px 12px; min-height: 20px; }}
+        QPushButton:hover {{ background: {c["raised"]}; }}
+        QPushButton:pressed, QPushButton:checked {{ background: {c["selection"]}; }}
+        QPushButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus,
+        QDoubleSpinBox:focus, QTextEdit:focus, QListWidget:focus {{ border-color: {c["focus"]};
+            }}
+        QPushButton:disabled {{ color: {c["disabled"]};
+            background: {c["background"]};
+            border-color: {c["rule"]};
+            }}
+        QPushButton#primary {{ background: {c["accent"]};
+            color: {c["accent_ink"]};
+            border-color: {c["accent"]};
+            font-weight: 600;
+            }}
+        QPushButton#primary:disabled {{ background: {c["selection"]};
+            color: {c["disabled"]};
+            border-color: {c["rule"]};
+            }}
+        QPushButton#navigation {{ border: 0;
+            border-radius: 0;
+            background: transparent;
+            padding: 10px 18px;
+            }}
+        QPushButton#navigation:checked {{ border-bottom: 2px solid {c["accent"]};
+            font-weight: 600;
+            }}
+        QPushButton#disclosure {{ text-align: left;
+            border: 0;
+            background: transparent;
+            padding: 8px 0;
+            font-weight: 600;
+            }}
+        QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QListWidget {{
+            background: {c["surface"]};
+            border: 1px solid {c["border"]};
+            border-radius: {DIMENSIONS["radius"]}px;
+            padding: 6px; selection-background-color: {c["selection"]}; }}
+        QComboBox {{ min-height: 20px; }}
+        QComboBox QAbstractItemView {{ background: {c["surface"]}; color: {c["text"]};
+            selection-background-color: {c["selection"]}; selection-color: {c["text"]}; }}
+        QListWidget::item {{ padding: 8px; }}
+        QTableWidget {{ background: {c["surface"]}; border: 0; gridline-color: {c["rule"]};
+            selection-background-color: {c["selection"]}; selection-color: {c["text"]}; }}
+        QHeaderView::section {{ background: {c["background"]};
+            color: {c["muted"]};
+            padding: 9px 12px;
+            border: 0; border-bottom: 1px solid {c["rule"]}; }}
+        QScrollArea {{ border: 0; background: transparent; }}
+        QSplitter::handle {{ background: {c["rule"]}; }}
+        QTabWidget::pane {{ border: 0; }}
+        QTabBar::tab {{ padding: 8px 20px;
+            background: {c["background"]};
+            color: {c["text"]};
+            }}
+        QTabBar::tab:selected {{ border-bottom: 2px solid {c["accent"]}; }}
+        QMenuBar, QMenu {{ background: {c["background"]}; color: {c["text"]}; }}
+        QMenuBar::item:selected, QMenu::item:selected {{ background: {c["selection"]}; }}
+        QStatusBar {{ background: {c["background"]}; color: {c["muted"]}; border: 0; }}
+        QToolTip {{ background: {c["surface"]};
+            color: {c["text"]};
+            border: 1px solid {c["border"]};
+            padding: 4px;
+            }}
+    """)
+    widget.update()

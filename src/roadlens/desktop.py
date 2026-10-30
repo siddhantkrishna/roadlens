@@ -50,41 +50,12 @@ from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
 from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
-from roadlens.desktop_design import font
+from roadlens.desktop_design import apply_appearance, font
 from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
 
 LOG = logging.getLogger(__name__)
-STYLE = """
-QMainWindow, QDialog { background: #0e1c25; color: #e8f1f5; }
-QWidget { font-size: 13px; }
-QLabel, QGroupBox { color: #dce9ef; }
-QLabel#brand { font-size: 26px; font-weight: 800; color: #64e0c2; }
-QLabel#subtitle { color: #96adb9; }
-QLabel#metric { font-size: 23px; font-weight: 700; color: #70e2c5; }
-QFrame#card, QGroupBox { background: #152934; border: 1px solid #2b424d;
-    border-radius: 8px; padding: 8px; }
-QGroupBox { margin-top: 12px; }
-QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }
-QPushButton { color: #e6f1f4; background: #243d4a; border: 1px solid #3b5663;
-    border-radius: 5px; padding: 7px 12px; }
-QPushButton:hover { background: #315566; }
-QPushButton:disabled { color: #7a919c; background: #1b2d37; }
-QPushButton#primary { background: #18745f; border-color: #35b297; }
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QListWidget, QTextEdit, QTableWidget {
-    color: #e7f0f4; background: #11232d; border: 1px solid #36505d;
-    border-radius: 4px; padding: 5px; selection-background-color: #236b64; }
-QListWidget::item { padding: 9px 3px; }
-QHeaderView::section { background: #253d48; color: #bcd0da; padding: 7px; border: 0; }
-QTableWidget { gridline-color: #29404b; }
-QTabWidget::pane { border: 1px solid #2b414d; background: #0e1c25; }
-QTabBar::tab { background: #1a303c; color: #acbfca; padding: 10px 24px; }
-QTabBar::tab:selected { color: #72e8cb; background: #25434e; }
-QScrollArea { border: 0; background: #0e1c25; }
-QStatusBar { color: #afc6d0; background: #132630; }
-QToolTip { color: #ffffff; background: #213f4b; border: 1px solid #5a7b8a; }
-"""
 
 
 def default_config(data_dir: Path) -> Config:
@@ -227,7 +198,7 @@ class DesktopWindow(QMainWindow):
         self.setWindowTitle("ROADLENS • Local traffic intelligence")
         self.resize(1380, 940)
         self.setMinimumSize(1040, 720)
-        self.setStyleSheet(STYLE)
+        apply_appearance(self)
         self.build_ui()
         self.sync_sources()
         self.populate_settings()

@@ -6,22 +6,24 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
-from roadlens.desktop_design import colors_for
+from roadlens.desktop_design import colors_for, heading, label
 from roadlens.traffic.scene import CountingLine, Scene, Zone
 
 
@@ -164,30 +166,44 @@ class Preview(QWidget):
 
 
 class SceneEditor(QDialog):
-    def __init__(self, scene: Scene, image: QImage, parent=None):
+    def __init__(self, scene: Scene, image: QImage, parent=None, *, detection_image=None):
         super().__init__(parent)
-        self.setWindowTitle("Configure road scene")
+        self.setWindowTitle("Configure road")
         self.resize(1080, 720)
         self.scene = scene
         self.selected = None
+        self.clean_image = image
+        self.detection_image = detection_image if detection_image is not None else image
         layout = QVBoxLayout(self)
-        instructions = QLabel(
-            "Draw over a stopped frame. Click vertices, drag to adjust, then Apply. "
-            "For a left-to-right line, forward crosses down the image. "
-            "Changes apply to the next session."
+        layout.setContentsMargins(24, 24, 24, 20)
+        layout.setSpacing(12)
+        heading(layout, "Configure road", "Draw on the frame, then save the measurements you need.")
+        self.instructions = label(
+            "Select an existing measurement to edit it. Click points to draw a new one.", "muted"
         )
-        instructions.setWordWrap(True)
-        layout.addWidget(instructions)
-        body = QHBoxLayout()
-        layout.addLayout(body, 1)
+        layout.addWidget(self.instructions)
+        self.detections = QCheckBox("Show detections")
+        self.detections.toggled.connect(self.toggle_detections)
+        layout.addWidget(self.detections)
+        body = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(body, 1)
         self.canvas = Preview()
         self.canvas.editable = True
         self.canvas.scene = scene
         self.canvas.set_image(image)
         self.canvas.finished.connect(self.apply_geometry)
-        body.addWidget(self.canvas, 3)
-        controls = QVBoxLayout()
-        body.addLayout(controls, 1)
+        body.addWidget(self.canvas)
+        panel = QWidget()
+        panel.setObjectName("page")
+        controls = QVBoxLayout(panel)
+        controls.setContentsMargins(12, 0, 0, 0)
+        panel_scroll = QScrollArea()
+        panel_scroll.setWidgetResizable(True)
+        panel_scroll.setMinimumWidth(260)
+        panel_scroll.setWidget(panel)
+        body.addWidget(panel_scroll)
+        body.setStretchFactor(0, 3)
+        body.setStretchFactor(1, 1)
         self.items = QListWidget()
         self.items.setAccessibleName("Existing scene geometry")
         self.items.currentRowChanged.connect(self.select_geometry)
@@ -205,7 +221,7 @@ class SceneEditor(QDialog):
         self.hysteresis.setToolTip(
             "Normalized perpendicular distance, greater than 0 and at most 0.05"
         )
-        for label, widget in (
+        for field_title, widget in (
             ("Kind", self.kind),
             ("ID", self.identifier),
             ("Name", self.name),
@@ -213,7 +229,7 @@ class SceneEditor(QDialog):
             ("Reverse label", self.reverse),
             ("Line deadband", self.hysteresis),
         ):
-            form.addRow(label, widget)
+            form.addRow(field_title, widget)
         for title, callback in (
             ("New geometry", self.new_geometry),
             ("Apply geometry", self.apply_geometry),
@@ -348,6 +364,9 @@ class SceneEditor(QDialog):
         if self.canvas.points and not self.apply_geometry():
             return
         self.accept()
+
+    def toggle_detections(self, enabled):
+        self.canvas.set_image(self.detection_image if enabled else self.clean_image)
 
 
 class FlowChart(QWidget):

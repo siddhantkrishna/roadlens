@@ -811,13 +811,26 @@ class DesktopWindow(QMainWindow):
         if not source or self.active(source.name):
             return
         try:
+            pane = self.panes[source.name]
+            if pane.raw_image.isNull():
+                self.statusBar().showMessage(
+                    "Wait for a video preview, or start and stop the camera once before drawing."
+                )
+                if source.kind == "video":
+                    self.load_video_preview(source)
+                return
             editor = SceneEditor(
-                scene_for_source(source.scene), self.panes[source.name].preview.image, self
+                scene_for_source(source.scene),
+                pane.raw_image,
+                self,
+                detection_image=pane.preview.image,
             )
             if editor.exec() == QDialog.DialogCode.Accepted:
                 path = self.data_dir / "scenes" / f"{editor.scene.fingerprint}.json"
                 editor.scene.save(path)
                 self.sources[self.sources.index(source)] = replace(source, scene=str(path))
+                pane.preview.scene = editor.scene
+                pane.preview.update()
                 if self.persist():
                     self.statusBar().showMessage(
                         "Scene saved. Start the source to begin a new session."

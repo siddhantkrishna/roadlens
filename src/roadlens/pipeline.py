@@ -284,7 +284,7 @@ class Pipeline(threading.Thread):
                 diagnostic,
                 compact=self.desktop_preview,
             )
-            if analysis is not None:
+            if analysis is not None and not self.desktop_preview:
                 image = self.traffic.overlay(image, analysis)
             self.results.put(
                 Result(

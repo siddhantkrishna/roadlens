@@ -202,6 +202,7 @@ class DesktopWindow(QMainWindow):
         self.last_read_error = None
         self.last_diagnostic = 0.0
         self.settings_changed = set()
+        self.draw_geometry = True
         self.setWindowTitle("ROADLENS • Local traffic intelligence")
         self.resize(1280, 850)
         self.setMinimumSize(960, 680)
@@ -293,6 +294,11 @@ class DesktopWindow(QMainWindow):
             action.setShortcut(f"Ctrl+{index + 1}")
             action.triggered.connect(lambda _, i=index: self.tabs.setCurrentIndex(i))
             self.addAction(action)
+        view_menu = self.menuBar().addMenu("View")
+        self.geometry_action = view_menu.addAction("Show road geometry")
+        self.geometry_action.setCheckable(True)
+        self.geometry_action.setChecked(True)
+        self.geometry_action.toggled.connect(self.set_geometry_visible)
         help_menu = self.menuBar().addMenu("Help")
         help_menu.addAction("Camera permissions", self.camera_help)
         help_menu.addAction("Open source license", self.open_license)
@@ -400,8 +406,7 @@ class DesktopWindow(QMainWindow):
         self.metrics = {}
         for title, display in (
             ("Crossing events", "Vehicles counted"),
-            ("Visible tracks", "Visible vehicles"),
-            ("Queued vehicles", "Queue size"),
+            ("Traffic flow", "Vehicles / min"),
             ("Congestion", "Road conditions"),
         ):
             stack = QVBoxLayout()
@@ -417,6 +422,13 @@ class DesktopWindow(QMainWindow):
         self.live_details = Foldout("Details")
         self.live_status = label("No source selected", "muted")
         self.live_details.body_layout.addWidget(self.live_status)
+        secondary = QHBoxLayout()
+        for title in ("Visible tracks", "Queued vehicles"):
+            secondary.addWidget(label(title, "muted"))
+            self.metrics[title] = label("—")
+            secondary.addWidget(self.metrics[title])
+            secondary.addStretch()
+        self.live_details.body_layout.addLayout(secondary)
         details = QSplitter(Qt.Orientation.Horizontal)
         self.count_table = table(["Line", "Vehicle", "Direction", "Crossings"])
         self.zone_table = table(["Area", "Vehicles", "Occupancy", "Queue", "Conditions"])
@@ -611,7 +623,7 @@ class DesktopWindow(QMainWindow):
                 self.panes[source.name].preview.scene = scene_for_source(source.scene)
             except (OSError, ValueError, TypeError, KeyError) as error:
                 self.panes[source.name].status.setText(f"Road configuration unavailable: {error}")
-            self.panes[source.name].preview.show_geometry = True
+            self.panes[source.name].preview.show_geometry = self.draw_geometry
         selected = next(
             (i for i, s in enumerate(self.sources) if previous and s.name == previous.name), 0
         )
@@ -785,13 +797,23 @@ class DesktopWindow(QMainWindow):
 
     def update_live(self, result):
         if result is None:
-            for label in self.metrics.values():
-                label.setText("—")
+            for metric in self.metrics.values():
+                metric.setText("—")
+                metric.setToolTip("Start a source to record this measurement")
             fill_table(self.count_table, [])
             fill_table(self.zone_table, [])
             self.live_status.setText("Start the selected source to see its measurements.")
+            self.monitor_hint.setText(
+                "Press Start for detection. Configure the road to enable counting and congestion."
+                if self.selected_source()
+                else "Import a video or connect a camera to get started."
+            )
             return
         snapshot = result.analysis
+        self.metrics["Traffic flow"].setText("—")
+        self.metrics["Traffic flow"].setToolTip(
+            "A counting line and a saved observation window are required"
+        )
         self.metrics["Visible tracks"].setText(str(len(result.tracks)))
         if snapshot is None:
             self.update_live(None)
@@ -799,9 +821,7 @@ class DesktopWindow(QMainWindow):
             self.live_status.setText("Traffic analysis unavailable for this result.")
             return
         self.metrics["Crossing events"].setText(
-            str(sum(c.count for c in snapshot.counts))
-            if snapshot.counting_available
-            else "No lines"
+            str(sum(c.count for c in snapshot.counts)) if snapshot.counting_available else "—"
         )
         queues = [z.queued_vehicles for z in snapshot.zones if z.queued_vehicles is not None]
         # Overlapping zones can contain the same queue; never sum them as unique vehicles.
@@ -811,7 +831,31 @@ class DesktopWindow(QMainWindow):
             (state for state in ("congested", "observing", "free") if state in conditions),
             "Unavailable" if conditions else "No road zone",
         )
-        self.metrics["Congestion"].setText(congestion or "No road zone")
+        self.metrics["Congestion"].setText(
+            {"free": "Free flowing", "observing": "Observing", "congested": "Congested"}.get(
+                congestion, "—"
+            )
+        )
+        self.monitor_hint.setText(
+            "Counting vehicles across your line. Flow appears after an observation window is saved."
+            if snapshot.counting_available
+            else "Detection is running. Draw a line in Configure road to count vehicles."
+        )
+        if not snapshot.zones:
+            self.monitor_hint.setText(
+                self.monitor_hint.text() + " Draw a road area to measure congestion."
+            )
+        self.metrics["Crossing events"].setToolTip(
+            "Cumulative crossing events in this session"
+            if snapshot.counting_available
+            else "Draw a counting line to enable vehicle counts"
+        )
+        self.metrics["Congestion"].setToolTip(
+            "Measured from occupancy in configured road areas"
+            if snapshot.zones
+            else "Draw a road area to measure congestion"
+        )
+        self.update_flow_metric()
         fill_table(
             self.count_table,
             [(c.line_id, c.category, c.direction, c.count) for c in snapshot.counts],
@@ -843,7 +887,7 @@ class DesktopWindow(QMainWindow):
         )
         self.live_status.setText(
             f"Source time {snapshot.source_time:.2f}s • {speed} • "
-            f"Anomaly baseline {baseline}. Queue card = largest zone queue."
+            f"Anomaly baseline {baseline}. Queue = largest road-area queue."
         )
 
     def tick(self):
@@ -1088,6 +1132,7 @@ class DesktopWindow(QMainWindow):
             )
         else:
             self.history_status.setText("No saved sessions match this camera.")
+        self.update_flow_metric()
 
     def change_flow_series(self, series):
         if hasattr(self, "chart"):
@@ -1421,7 +1466,7 @@ class DesktopWindow(QMainWindow):
             pane.raw_image = image
             pane.preview.set_image(image)
             pane.preview.scene = scene_for_source(source.scene)
-            pane.preview.show_geometry = True
+            pane.preview.show_geometry = self.draw_geometry
             pane.status.setText("Ready · configure the road or press Start")
 
         self.launch_job(f"preview:{source.name}", read, loaded)
@@ -1439,6 +1484,44 @@ class DesktopWindow(QMainWindow):
                 self.pause_selected()
             else:
                 self.start_selected()
+
+    def set_geometry_visible(self, visible):
+        self.draw_geometry = visible
+        for pane in self.panes.values():
+            pane.preview.show_geometry = visible
+            pane.preview.update()
+
+    def update_flow_metric(self):
+        source = self.selected_source()
+        pipeline = self.pipelines.get(source.name) if source else None
+        data = self.report_data or {}
+        session = data.get("session")
+        if not (
+            pipeline
+            and pipeline.traffic
+            and session
+            and session["id"] == pipeline.traffic.session_id
+        ):
+            return
+        windows = data.get("windows", [])
+        latest = next((w for w in reversed(windows) if w["observed_seconds"] > 0), None)
+        if latest and latest["flow_per_minute"]:
+            # Each line is a separate observation; select one rather than summing overlapping lines.
+            line = sorted({key.split("/")[0] for key in latest["flow_per_minute"]})[0]
+            values = [
+                value
+                for key, value in latest["flow_per_minute"].items()
+                if key.split("/")[0] == line and value is not None
+            ]
+            if values:
+                self.metrics["Traffic flow"].setText(f"{sum(values):.1f}")
+                self.metrics["Traffic flow"].setToolTip(
+                    f"Vehicles per observed minute at line {line}; latest saved window"
+                )
+                self.monitor_hint.setText(
+                    f"Counting line {line}. "
+                    f"{latest['observed_seconds']:.1f}s observed in the latest window."
+                )
 
 
 def main(argv=None):

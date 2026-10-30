@@ -1,5 +1,7 @@
 """Native Hallmark gates and interactions; public fixtures, never physical cameras."""
 
+from test_desktop import window as window
+
 from roadlens.desktop_design import LIGHT, contrast
 
 
@@ -131,3 +133,14 @@ def test_compact_desktop_overlay_leaves_header_and_footer_unpainted(monkeypatch)
     )
     assert labels == ["Car 12"]
     assert not canvas[:40].any() and not canvas[-40:].any()
+
+
+def test_geometry_visibility_is_independent_of_real_analysis(window):
+    from roadlens.config import SourceConfig
+
+    window.geometry_action.setChecked(False)
+    window.add_source(SourceConfig("Unopened camera", "camera", "unit-device-id"))
+    assert not window.panes["Unopened camera"].preview.show_geometry
+    window.geometry_action.setChecked(True)
+    assert window.panes["Unopened camera"].preview.show_geometry
+    assert not window.pipelines

@@ -462,63 +462,109 @@ class DesktopWindow(QMainWindow):
         self.build_sources_dialog()
 
     def build_history(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        page, layout = self.page()
+        heading(
+            layout, "Analysis", "Review recorded sessions and export the observations behind them."
+        )
         toolbar = QHBoxLayout()
-        self.history_camera = QLineEdit()
-        self.history_camera.setPlaceholderText("Exact camera name or ID; empty = all cameras")
-        self.history_camera.setAccessibleName("Filter session history by camera")
-        self.history_camera.returnPressed.connect(self.reset_history)
-        toolbar.addWidget(self.history_camera, 1)
-        self.button("Refresh / filter", self.reset_history, toolbar)
+        self.history_selector = QComboBox()
+        self.history_selector.setAccessibleName("Recorded session")
+        self.history_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.history_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.history_selector.currentIndexChanged.connect(self.select_history_index)
+        toolbar.addWidget(self.history_selector, 1)
         self.export_format = QComboBox()
         self.export_format.addItems(["PDF", "CSV", "JSON"])
-        self.export_format.setAccessibleName("Session export format")
+        self.export_format.setAccessibleName("Export format")
         toolbar.addWidget(self.export_format)
-        self.export_button = self.button("Export selected session…", self.export_session, toolbar)
-        self.heatmap_export_button = self.button(
-            "Export heatmap PNG…", self.export_heatmap, toolbar
-        )
+        self.export_button = self.button("Export…", self.export_session, toolbar, primary=True)
         layout.addLayout(toolbar)
-        self.sessions = table(["Camera", "Started (UTC)", "Status", "Clock", "Session"])
-        self.sessions.setMaximumHeight(200)
-        self.sessions.itemSelectionChanged.connect(self.history_selected)
-        layout.addWidget(self.sessions)
-        self.history_status = QLabel("No saved sessions yet")
-        self.history_status.setWordWrap(True)
+        self.history_status = label(
+            "No saved sessions yet. Start a source in Monitor to create one.", "muted"
+        )
         layout.addWidget(self.history_status)
+        self.analysis_empty = label(
+            "No sessions recorded\n\n"
+            "Your sessions, flow charts and movement heatmaps will appear here after analysis.",
+            "pageTitle",
+        )
+        self.analysis_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.analysis_empty, 1)
+        self.analysis_content = QWidget()
+        self.analysis_content.setObjectName("page")
+        analysis = QVBoxLayout(self.analysis_content)
+        analysis.setContentsMargins(0, 0, 0, 0)
+        analysis.setSpacing(16)
+        self.analysis_summary = label("", "brand")
+        analysis.addWidget(self.analysis_summary)
         flow_controls = QHBoxLayout()
-        flow_controls.addWidget(QLabel("Flow series:"))
+        flow_controls.addWidget(QLabel("Directional flow"))
         self.flow_series = QComboBox()
-        self.flow_series.setAccessibleName(
-            "Counting line, direction and vehicle class for flow chart"
-        )
+        self.flow_series.setAccessibleName("Flow by counting line, direction and vehicle class")
         self.flow_series.currentTextChanged.connect(self.change_flow_series)
-        flow_controls.addWidget(self.flow_series, 1)
-        layout.addLayout(flow_controls)
-        charts = QHBoxLayout()
-        self.chart = FlowChart()
-        charts.addWidget(self.chart)
-        heatmap_box = QVBoxLayout()
-        self.heatmap = Preview()
-        heatmap_box.addWidget(self.heatmap, 1)
-        self.heatmap_caption = QLabel("Heatmap unavailable until observations are saved")
-        self.heatmap_caption.setWordWrap(True)
-        heatmap_box.addWidget(self.heatmap_caption)
-        charts.addLayout(heatmap_box)
-        layout.addLayout(charts, 2)
-        self.history_counts = table(["Line", "Vehicle", "Direction", "Crossings"])
-        self.history_counts.setMaximumHeight(135)
-        layout.addWidget(self.history_counts)
-        self.events = table(["Source time (s)", "Event / anomaly", "Object", "Vehicle", "Details"])
-        layout.addWidget(self.events, 1)
-        note = QLabel(
-            "Latest 200 sessions, 200 events and 240 measurement windows shown. "
-            "CSV/JSON include all records for the selected session. Rates use observed time; "
-            "camera overlap is not deduplicated."
+        self.flow_series.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.flow_series.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
-        note.setWordWrap(True)
-        layout.addWidget(note)
+        flow_controls.addWidget(self.flow_series, 1)
+        analysis.addLayout(flow_controls)
+        charts = QGridLayout()
+        charts.setSpacing(16)
+        self.chart = FlowChart()
+        self.heatmap = Preview()
+        self.heatmap.empty_message = "No movement observations saved yet"
+        self.heatmap_caption = label("Vehicle movement · observed dwell", "muted")
+        heatmap_box = QVBoxLayout()
+        heatmap_box.addWidget(self.heatmap_caption)
+        heatmap_box.addWidget(self.heatmap, 1)
+        charts.addWidget(self.chart, 0, 0)
+        charts.addLayout(heatmap_box, 0, 1)
+        analysis.addLayout(charts)
+        self.records = Foldout("Crossings, queues and anomalies")
+        self.history_counts = table(["Line", "Vehicle", "Direction", "Crossings"])
+        self.history_counts.setMaximumHeight(160)
+        self.records.body_layout.addWidget(self.history_counts)
+        self.events = table(["Time (s)", "Event", "Area / line", "Vehicle", "Details"])
+        self.events.setMaximumHeight(180)
+        self.records.body_layout.addWidget(self.events)
+        self.records_note = label("", "muted")
+        self.records.body_layout.addWidget(self.records_note)
+        self.heatmap_export_button = self.button(
+            "Export heatmap PNG…", self.export_heatmap, self.records.body_layout
+        )
+        analysis.addWidget(self.records)
+        self.history_options = Foldout("Sessions and comparison")
+        filter_row = QHBoxLayout()
+        self.history_camera = QLineEdit()
+        self.history_camera.setPlaceholderText("Camera name or ID · leave empty for all")
+        self.history_camera.setAccessibleName("Filter sessions by camera")
+        self.history_camera.returnPressed.connect(self.reset_history)
+        filter_row.addWidget(self.history_camera, 1)
+        self.button("Filter", self.reset_history, filter_row)
+        self.history_options.body_layout.addLayout(filter_row)
+        self.sessions = table(["Source", "Started (UTC)", "Status"])
+        self.sessions.setMaximumHeight(170)
+        self.sessions.itemSelectionChanged.connect(self.history_selected)
+        self.history_options.body_layout.addWidget(self.sessions)
+        analysis.addWidget(self.history_options)
+        analysis.addWidget(
+            label(
+                "Charts show the latest 240 measurement windows. Tables show up to 200 events. "
+                "CSV and JSON include all session records. "
+                "Overlapping cameras are not deduplicated.",
+                "muted",
+            )
+        )
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.analysis_content)
+        self.analysis_scroll = scroll
+        scroll.hide()
+        layout.addWidget(scroll, 1)
+        analysis.removeWidget(self.history_options)
+        layout.addWidget(self.history_options)
         self.tabs.addWidget(page)
 
     def build_settings(self):
@@ -1107,6 +1153,11 @@ class DesktopWindow(QMainWindow):
             LOG.exception("Desktop task %s completion failed", name)
             if name == "history":
                 self.report_data = None
+                self.analysis_scroll.hide()
+                self.analysis_empty.setText(
+                    "Session data could not be read. Check the database in Settings."
+                )
+                self.analysis_empty.show()
                 self.chart.set_windows([])
                 self.heatmap.set_image(QImage())
                 self.heatmap_caption.setText("Heatmap unavailable while history cannot be read")
@@ -1173,18 +1224,34 @@ class DesktopWindow(QMainWindow):
         self.sessions.blockSignals(True)
         fill_table(
             self.sessions,
-            [
-                (r["name"], r["started_at"], r["status"], r["clock_kind"], r["id"])
-                for r in self.history_rows
-            ],
+            [(r["name"], r["started_at"], r["status"]) for r in self.history_rows],
         )
         for index, row in enumerate(self.history_rows):
             if row["id"] == self.history_session:
                 self.sessions.selectRow(index)
                 break
         self.sessions.blockSignals(False)
+        self.history_selector.blockSignals(True)
+        self.history_selector.clear()
+        for row in self.history_rows:
+            self.history_selector.addItem(
+                f"{row['name']} · {row['started_at'][:19]} · {row['status']}", row["id"]
+            )
+        self.history_selector.setCurrentIndex(self.history_selector.findData(self.history_session))
+        self.history_selector.blockSignals(False)
+        self.analysis_empty.setText(
+            "No sessions recorded\n\n"
+            "Your sessions, flow charts and movement heatmaps will appear here after analysis."
+        )
+        self.analysis_empty.setVisible(not selected)
+        self.analysis_scroll.setVisible(bool(selected))
+        self.records_note.setText(
+            "No queue or anomaly events recorded."
+            if not any(e["kind"] != "crossing" for e in data["events"])
+            else "Queue and anomaly events are listed with their source time and recorded details."
+        )
         series = sorted({key for w in data["windows"] for key in w["flow_per_minute"]})
-        selected_series = self.flow_series.currentText()
+        selected_series = self.flow_series.currentData()
         if selected_series not in series and series:
             selected_series = max(
                 series,
@@ -1194,8 +1261,11 @@ class DesktopWindow(QMainWindow):
             )
         self.flow_series.blockSignals(True)
         self.flow_series.clear()
-        self.flow_series.addItems(series)
-        self.flow_series.setCurrentText(selected_series)
+        for key in series:
+            self.flow_series.addItem(
+                " · ".join(part.replace("_", " ") for part in key.split("/")), key
+            )
+        self.flow_series.setCurrentIndex(self.flow_series.findData(selected_series))
         self.flow_series.blockSignals(False)
         self.chart.series = selected_series
         self.chart.set_windows(data["windows"])
@@ -1224,23 +1294,34 @@ class DesktopWindow(QMainWindow):
             ],
         )
         if selected:
-            settings = json.loads(selected["settings_json"])
-            parameters = settings.get("parameters", {})
+            scene = json.loads(selected["scene_json"])
+            total = sum(c["count"] for c in data["counts"])
+            self.analysis_summary.setText(
+                f"{total} crossing event(s) across {len(scene['lines'])} counting line(s)"
+                if scene["lines"]
+                else "Detection session · no counting lines configured"
+            )
             latest = data["windows"][-1] if data["windows"] else {}
             baseline = latest.get("baseline_ready")
             self.history_status.setText(
-                f"{selected['name']} • {selected['status']} • session {selected['id']} • "
-                f"{data['event_total']} recorded event(s) • "
-                f"baseline {'ready' if baseline else 'warming / unavailable'} • "
-                f"window {parameters.get('window_seconds', '?')}s"
+                f"{selected['name']}. {selected['status'].capitalize()}. "
+                f"{data['event_total']} recorded event(s)"
+                + (
+                    ". Anomaly detection is learning this road."
+                    if not baseline
+                    else ". Anomaly baseline ready."
+                )
             )
         else:
-            self.history_status.setText("No saved sessions match this camera.")
+            self.history_status.setText(
+                "No saved sessions match this camera. "
+                "Clear the filter or start analysis in Monitor."
+            )
         self.update_flow_metric()
 
     def change_flow_series(self, series):
         if hasattr(self, "chart"):
-            self.chart.series = series
+            self.chart.series = self.flow_series.currentData() or series
             self.chart.update()
 
     def export_session(self):
@@ -1639,6 +1720,10 @@ class DesktopWindow(QMainWindow):
             self.history_request += 1
             self.tabs.setCurrentIndex(1)
             self.refresh_history()
+
+    def select_history_index(self, index):
+        if 0 <= index < len(self.history_rows):
+            self.sessions.selectRow(index)
 
 
 def main(argv=None):

@@ -22,3 +22,14 @@ def test_dark_tokens_have_full_contrast_parity():
     for role in ("border", "focus", "chart"):
         assert contrast(DARK[role], DARK["surface"]) >= 3
     assert contrast(DARK["accent"], DARK["accent_ink"]) >= 4.5
+
+
+def test_svg_icons_render_for_every_action():
+    from PySide6.QtWidgets import QApplication
+
+    from roadlens.desktop_design import PATHS, icon
+
+    app = QApplication.instance() or QApplication([])
+    assert app
+    for name in PATHS:
+        assert not icon(name, LIGHT["text"]).pixmap(36, 36).isNull()

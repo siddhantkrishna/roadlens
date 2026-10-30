@@ -196,4 +196,46 @@ def apply_appearance(widget, dark=False):
             padding: 4px;
             }}
     """)
+    from PySide6.QtCore import QSize
+    from PySide6.QtWidgets import QPushButton
+
+    for button in widget.findChildren(QPushButton):
+        name = button.property("iconName")
+        if name:
+            color = c["accent_ink"] if button.objectName() == "primary" else c["text"]
+            button.setIcon(icon(name, color))
+            button.setIconSize(QSize(DIMENSIONS["icon"], DIMENSIONS["icon"]))
     widget.update()
+
+
+PATHS = {
+    "monitor": '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/>',
+    "analysis": '<path d="M4 3v17h17M8 15v-4m5 4V7m5 8V4"/>',
+    "settings": '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/>'
+    '<circle cx="15" cy="17" r="3"/>',
+    "play": '<path d="m8 5 11 7-11 7Z"/>',
+    "pause": '<path d="M8 5v14M16 5v14"/>',
+    "stop": '<rect x="6" y="6" width="12" height="12" rx="1"/>',
+    "import": '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+    "road": '<path d="M9 3 4 21M15 3l5 18M12 3v3m0 4v4m0 4v3"/>',
+    "camera": '<rect x="3" y="5" width="13" height="14" rx="2"/><path d="m16 10 5-3v10l-5-3"/>',
+}
+
+
+def icon(name, color):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QIcon, QPainter, QPixmap
+    from PySide6.QtSvg import QSvgRenderer
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
+        f'fill="none" stroke="{color}" stroke-width="1.6" '
+        f'stroke-linecap="round" stroke-linejoin="round">{PATHS[name]}</svg>'
+    )
+    pixmap = QPixmap(48, 48)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    QSvgRenderer(svg.encode()).render(painter)
+    painter.end()
+    result = QIcon(pixmap)
+    return result

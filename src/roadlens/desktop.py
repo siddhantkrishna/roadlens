@@ -276,6 +276,20 @@ class DesktopWindow(QMainWindow):
 
     def button(self, title, callback, layout, *, primary=False):
         button = QPushButton(title)
+        glyph = {
+            "Import video…": "import",
+            "Import video": "import",
+            "Start selected": "play",
+            "Start": "play",
+            "Pause": "pause",
+            "Stop": "stop",
+            "Stop selected": "stop",
+            "Configure scene…": "road",
+            "Configure road": "road",
+            "Sources…": "camera",
+        }.get(title)
+        if glyph:
+            button.setProperty("iconName", glyph)
         button.clicked.connect(callback)
         if primary:
             button.setObjectName("primary")

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -182,6 +183,13 @@ class SceneEditor(QDialog):
             "Select an existing measurement to edit it. Click points to draw a new one.", "muted"
         )
         layout.addWidget(self.instructions)
+        self.tools = QHBoxLayout()
+        self.count_tool = QPushButton("Count vehicles")
+        self.count_tool.setCheckable(True)
+        self.count_tool.clicked.connect(self.begin_counting)
+        self.tools.addWidget(self.count_tool)
+        self.tools.addStretch()
+        layout.addLayout(self.tools)
         self.detections = QCheckBox("Show detections")
         self.detections.toggled.connect(self.toggle_detections)
         layout.addWidget(self.detections)
@@ -367,6 +375,19 @@ class SceneEditor(QDialog):
 
     def toggle_detections(self, enabled):
         self.canvas.set_image(self.detection_image if enabled else self.clean_image)
+
+    def begin_tool(self, kind):
+        if self.canvas.points and not self.apply_geometry():
+            return
+        self.kind.setCurrentText(kind)
+        self.new_geometry()
+        self.canvas.selection_enabled = False
+        self.count_tool.setChecked(kind == "line")
+        self.instructions.setText("Click two points across the road. Drag to adjust, then Save.")
+        self.canvas.setFocus()
+
+    def begin_counting(self):
+        self.begin_tool("line")
 
 
 class FlowChart(QWidget):

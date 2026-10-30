@@ -1,5 +1,6 @@
 """Native Hallmark gates and interactions; public fixtures, never physical cameras."""
 
+import pytest
 from test_desktop import qt_app as qt_app
 from test_desktop import window as window
 
@@ -179,3 +180,31 @@ def test_monitor_flow_uses_selected_line_without_combining_lines(window, qt_app,
         rates = window.report_data["windows"][-1]["flow_per_minute"]
         expected = sum(v for key, v in rates.items() if key.split("/")[0] == line and v is not None)
         assert window.metrics["Traffic flow"].text() == f"{expected:.1f}"
+
+
+def test_counting_tool_draws_and_saves_without_geometry_fields(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    editor = SceneEditor(Scene(), image())
+    editor.show()
+    qt_app.processEvents()
+    editor.count_tool.click()
+    for point in ((0.1, 0.5), (0.9, 0.5)):
+        QTest.mouseClick(
+            editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped(point).toPoint()
+        )
+    editor.buttons.button(QDialogButtonBox.StandardButton.Save).click()
+    assert editor.result() == QDialog.DialogCode.Accepted and len(editor.scene.lines) == 1
+    editor.close()
+
+
+@pytest.fixture(autouse=True)
+def stable_qt_lifetime(qt_app):
+    """macOS Qt must retain one QApplication across the complete UI test session."""
+    yield qt_app

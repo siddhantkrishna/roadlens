@@ -429,6 +429,13 @@ class DesktopWindow(QMainWindow):
             secondary.addWidget(self.metrics[title])
             secondary.addStretch()
         self.live_details.body_layout.addLayout(secondary)
+        flow_choice = QHBoxLayout()
+        flow_choice.addWidget(QLabel("Flow counting line"))
+        self.monitor_line = QComboBox()
+        self.monitor_line.setAccessibleName("Counting line used for the live flow rate")
+        self.monitor_line.currentIndexChanged.connect(self.update_flow_metric)
+        flow_choice.addWidget(self.monitor_line, 1)
+        self.live_details.body_layout.addLayout(flow_choice)
         details = QSplitter(Qt.Orientation.Horizontal)
         self.count_table = table(["Line", "Vehicle", "Direction", "Crossings"])
         self.zone_table = table(["Area", "Vehicles", "Occupancy", "Queue", "Conditions"])
@@ -653,6 +660,15 @@ class DesktopWindow(QMainWindow):
                 index // 2 if len(visible) > 1 else 0,
                 index % 2 if len(visible) > 1 else 0,
             )
+        previous_line = self.monitor_line.currentData()
+        self.monitor_line.blockSignals(True)
+        self.monitor_line.clear()
+        if source:
+            for line in self.panes[source.name].preview.scene.lines:
+                self.monitor_line.addItem(line.id, line.id)
+        self.monitor_line.setCurrentIndex(max(0, self.monitor_line.findData(previous_line)))
+        self.monitor_line.setEnabled(self.monitor_line.count() > 0)
+        self.monitor_line.blockSignals(False)
         self.update_live(result)
 
     def add_source(self, source):
@@ -1491,7 +1507,7 @@ class DesktopWindow(QMainWindow):
             pane.preview.show_geometry = visible
             pane.preview.update()
 
-    def update_flow_metric(self):
+    def update_flow_metric(self, *_):
         source = self.selected_source()
         pipeline = self.pipelines.get(source.name) if source else None
         data = self.report_data or {}
@@ -1507,7 +1523,9 @@ class DesktopWindow(QMainWindow):
         latest = next((w for w in reversed(windows) if w["observed_seconds"] > 0), None)
         if latest and latest["flow_per_minute"]:
             # Each line is a separate observation; select one rather than summing overlapping lines.
-            line = sorted({key.split("/")[0] for key in latest["flow_per_minute"]})[0]
+            line = self.monitor_line.currentData()
+            if line is None:
+                return
             values = [
                 value
                 for key, value in latest["flow_per_minute"].items()

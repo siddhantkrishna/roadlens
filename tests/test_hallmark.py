@@ -1,5 +1,6 @@
 """Native Hallmark gates and interactions; public fixtures, never physical cameras."""
 
+from test_desktop import qt_app as qt_app
 from test_desktop import window as window
 
 from roadlens.desktop_design import LIGHT, contrast
@@ -144,3 +145,37 @@ def test_geometry_visibility_is_independent_of_real_analysis(window):
     window.geometry_action.setChecked(True)
     assert window.panes["Unopened camera"].preview.show_geometry
     assert not window.pipelines
+
+
+def test_monitor_flow_uses_selected_line_without_combining_lines(window, qt_app, model_path):
+    from dataclasses import replace
+    from pathlib import Path
+
+    from test_desktop import spin
+
+    from roadlens.config import SourceConfig
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    root = Path(__file__).resolve().parents[1]
+    scene = Scene.load(root / "assets/traffic.scene.json")
+    scene = scene.with_line(CountingLine("second", (0.1, 0.8), (0.9, 0.8)))
+    path = window.data_dir / "two-lines.json"
+    scene.save(path)
+    window.config = replace(window.config, model=model_path)
+    window.add_source(
+        SourceConfig("Two lines", "video", str(root / "assets/traffic.avi"), False, str(path))
+    )
+    spin(qt_app, lambda: not window.jobs)
+    window.start_all()
+    spin(qt_app, lambda: not window.any_active())
+    window.tick()
+    spin(qt_app, lambda: not window.jobs)
+    window.refresh_history()
+    spin(qt_app, lambda: not window.jobs)
+    assert window.monitor_line.count() == 2
+    for index in range(2):
+        window.monitor_line.setCurrentIndex(index)
+        line = window.monitor_line.currentData()
+        rates = window.report_data["windows"][-1]["flow_per_minute"]
+        expected = sum(v for key, v in rates.items() if key.split("/")[0] == line and v is not None)
+        assert window.metrics["Traffic flow"].text() == f"{expected:.1f}"

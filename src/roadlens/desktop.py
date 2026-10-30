@@ -52,7 +52,7 @@ from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
 from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
-from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, font, label
+from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, font, heading, label
 from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
@@ -122,8 +122,8 @@ def table(headers):
     widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     widget.horizontalHeader().setStretchLastSection(True)
     widget.horizontalHeader().setMinimumSectionSize(72)
-    for index, heading in enumerate(headers):
-        widget.setColumnWidth(index, max(80, widget.fontMetrics().horizontalAdvance(heading) + 30))
+    for index, title in enumerate(headers):
+        widget.setColumnWidth(index, max(80, widget.fontMetrics().horizontalAdvance(title) + 30))
     widget.setWordWrap(False)
     widget.setTextElideMode(Qt.TextElideMode.ElideRight)
     widget.verticalHeader().hide()
@@ -347,7 +347,7 @@ class DesktopWindow(QMainWindow):
         toolbar.addWidget(self.source_selector, 1)
         self.import_button = self.button("Import video", self.import_video, toolbar)
         self.import_button.setProperty("iconName", "import")
-        self.camera_button = self.button("Sources…", self.toggle_sources, toolbar)
+        self.camera_button = self.button("Sources…", self.manage_sources, toolbar)
         self.camera_button.setProperty("iconName", "camera")
         layout.addLayout(toolbar)
         controls = QHBoxLayout()
@@ -380,7 +380,7 @@ class DesktopWindow(QMainWindow):
         )
         empty_actions = QHBoxLayout()
         self.button("Import a video…", self.import_video, empty_actions, primary=True)
-        self.button("Connect a camera…", self.toggle_sources, empty_actions)
+        self.button("Connect a camera…", self.manage_sources, empty_actions)
         empty_actions.addStretch()
         empty_layout.addLayout(empty_actions)
         empty_layout.addStretch()
@@ -422,7 +422,7 @@ class DesktopWindow(QMainWindow):
         self.live_details.body_layout.addWidget(details)
         layout.addWidget(self.live_details)
         self.tabs.addWidget(page)
-        self.build_source_controls()
+        self.build_sources_dialog()
 
     def build_history(self):
         page = QWidget()
@@ -652,7 +652,9 @@ class DesktopWindow(QMainWindow):
 
     def discover_cameras(self):
         self.discover_button.setEnabled(False)
-        self.statusBar().showMessage("Discovering AVFoundation devices…")
+        self.discover_button.setText("Finding cameras…")
+        self.camera_status.setText("Looking for Mac, iPhone and external cameras…")
+        self.statusBar().showMessage("Finding cameras…")
         self.launch_job("cameras", list_cameras, self.cameras_discovered)
 
     def cameras_discovered(self, devices):
@@ -660,7 +662,13 @@ class DesktopWindow(QMainWindow):
         for device in devices:
             kind = "iPhone" if "Continuity" in device["type"] else "Mac / external"
             self.camera_selector.addItem(f"{device['name']} ({kind})", device)
-        self.statusBar().showMessage(f"{len(devices)} camera(s) available; no capture started")
+        self.discover_button.setText("Find cameras")
+        self.camera_status.setText(
+            f"{len(devices)} camera(s) available. Add one, then press Start in Monitor."
+            if devices
+            else "No cameras found. Check camera permissions and your iPhone connection."
+        )
+        self.statusBar().showMessage(self.camera_status.text())
 
     def add_camera(self):
         device = self.camera_selector.currentData()
@@ -1337,24 +1345,46 @@ class DesktopWindow(QMainWindow):
     def select_source_index(self, index):
         self.source_list.setCurrentRow(index)
 
-    def toggle_sources(self):
-        self.source_controls.toggle.setChecked(not self.source_controls.toggle.isChecked())
-
-    def build_source_controls(self):
-        self.source_controls = Foldout("Sources")
-        controls = self.source_controls.body_layout
+    def build_sources_dialog(self):
+        self.sources_dialog = QDialog(self)
+        self.sources_dialog.setWindowTitle("Sources")
+        self.sources_dialog.resize(510, 560)
+        layout = QVBoxLayout(self.sources_dialog)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+        heading(layout, "Sources", "Keep recordings and cameras together. Select one to monitor.")
         self.source_list = QListWidget()
-        self.source_list.setMaximumHeight(120)
+        self.source_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.source_list.setAccessibleName("Saved sources")
         self.source_list.currentRowChanged.connect(self.selection_changed)
-        controls.addWidget(self.source_list)
+        layout.addWidget(self.source_list, 1)
+        row = QHBoxLayout()
+        self.button("Import video…", self.import_video, row)
+        self.remove_button = self.button("Remove", self.remove_source, row)
+        layout.addLayout(row)
+        layout.addWidget(label("Connect a camera", "brand"))
+        layout.addWidget(
+            label("Find cameras available to macOS, then add your chosen device.", "muted")
+        )
         self.camera_selector = QComboBox()
-        controls.addWidget(self.camera_selector)
-        actions = QHBoxLayout()
-        self.discover_button = self.button("Find cameras", self.discover_cameras, actions)
-        self.button("Add camera", self.add_camera, actions)
-        self.remove_button = self.button("Remove source", self.remove_source, actions)
-        controls.addLayout(actions)
-        self.tabs.widget(0).layout().addWidget(self.source_controls)
+        self.camera_selector.setAccessibleName("Available MacBook and iPhone cameras")
+        self.camera_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        layout.addWidget(self.camera_selector)
+        row = QHBoxLayout()
+        self.discover_button = self.button("Find cameras", self.discover_cameras, row)
+        self.add_camera_button = self.button("Add camera", self.add_camera, row)
+        layout.addLayout(row)
+        self.camera_status = label("Finding cameras does not start recording or capture.", "muted")
+        layout.addWidget(self.camera_status)
+        self.button("Camera permission help", self.camera_help, layout)
+        self.button("Done", self.sources_dialog.accept, layout, primary=True)
+
+    def manage_sources(self):
+        self.sources_dialog.open()
+        if self.camera_selector.count() == 0:
+            self.discover_cameras()
 
 
 def main(argv=None):

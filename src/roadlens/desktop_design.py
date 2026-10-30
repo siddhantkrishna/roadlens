@@ -6,7 +6,7 @@ Web scaffolds/render lint are replaced by Qt layout, contrast and screenshot che
 
 from PySide6.QtCore import QObject, Qt
 from PySide6.QtGui import QPainter, QPalette, QPen
-from PySide6.QtWidgets import QApplication, QFocusFrame, QWidget
+from PySide6.QtWidgets import QApplication, QFocusFrame, QPushButton, QVBoxLayout, QWidget
 
 LIGHT = {
     "background": "#f3f4ef",
@@ -268,3 +268,27 @@ class FocusOutline(QObject):
             self.frame.setWidget(current)
         else:
             self.frame.setWidget(None)
+
+
+class Foldout(QWidget):
+    def __init__(self, title, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.toggle = QPushButton()
+        self.toggle.setObjectName("disclosure")
+        self.toggle.setCheckable(True)
+        self.toggle.setAccessibleName(title)
+        self.body = QWidget()
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(0, SPACE["sm"], 0, SPACE["sm"])
+        self.body_layout.setSpacing(SPACE["lg"])
+        layout.addWidget(self.toggle)
+        layout.addWidget(self.body)
+        self.toggle.toggled.connect(lambda opened: self.set_open(title, opened))
+        self.set_open(title, False)
+
+    def set_open(self, title, opened):
+        self.toggle.setText(f"{'▾' if opened else '▸'}  {title}")
+        self.body.setVisible(opened)

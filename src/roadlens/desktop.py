@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
@@ -51,7 +52,7 @@ from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
 from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
-from roadlens.desktop_design import FocusOutline, apply_appearance, font, label
+from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, font, label
 from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
@@ -161,7 +162,7 @@ def fill_table(widget, rows):
 class SourcePane(QFrame):
     def __init__(self, source):
         super().__init__()
-        self.setObjectName("card")
+        self.setObjectName("sourcePane")
         layout = QVBoxLayout(self)
         self.title = QLabel(source.name)
         self.title.setFont(font("section", bold=True))
@@ -172,7 +173,9 @@ class SourcePane(QFrame):
         layout.addWidget(self.title)
         self.preview = Preview()
         layout.addWidget(self.preview, 1)
-        self.status = QLabel("Stopped • no camera opened")
+        self.status = QLabel("Ready · press Start to begin")
+        self.raw_image = QImage()
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
@@ -329,76 +332,97 @@ class DesktopWindow(QMainWindow):
         return button
 
     def build_monitor(self):
-        page = QWidget()
-        layout = QHBoxLayout(page)
-        side = QVBoxLayout()
-        layout.addLayout(side, 1)
-        side.addWidget(QLabel("SOURCES"))
-        self.source_list = QListWidget()
-        self.source_list.setMinimumWidth(190)
-        self.source_list.setMaximumWidth(280)
-        self.source_list.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.source_list.setAccessibleName("Sources; selected source drives live statistics")
-        self.source_list.currentRowChanged.connect(self.selection_changed)
-        side.addWidget(self.source_list, 1)
-        self.camera_selector = QComboBox()
-        self.camera_selector.setAccessibleName("Discovered MacBook and iPhone cameras")
-        side.addWidget(self.camera_selector)
-        self.discover_button = self.button("Discover cameras", self.discover_cameras, side)
-        self.button("Add selected camera", self.add_camera, side)
-        self.button("Import video…", self.import_video, side)
-        self.start_button = self.button("Start selected", self.start_selected, side, primary=True)
-        self.button("Start all", self.start_all, side)
-        self.stop_button = self.button("Stop selected", self.stop_selected, side)
-        self.button("Stop all", self.stop_all, side)
-        self.edit_button = self.button("Configure scene…", self.edit_scene, side)
-        self.remove_button = self.button("Remove source", self.remove_source, side)
-        hint = QLabel(
-            "Select a source for its counts.\nTwo feeds recommended on Intel.\n"
-            "Unconfigured zones/lines show unavailable metrics."
+        page, layout = self.page()
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
+        self.source_selector = QComboBox()
+        self.source_selector.setMinimumContentsLength(15)
+        self.source_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
-        hint.setWordWrap(True)
-        side.addWidget(hint)
-        main = QVBoxLayout()
-        layout.addLayout(main, 4)
+        self.source_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.source_selector.setAccessibleName("Selected camera or video")
+        self.source_selector.setPlaceholderText("Choose a camera or video")
+        self.source_selector.currentIndexChanged.connect(self.select_source_index)
+        toolbar.addWidget(self.source_selector, 1)
+        self.import_button = self.button("Import video", self.import_video, toolbar)
+        self.import_button.setProperty("iconName", "import")
+        self.camera_button = self.button("Sources…", self.toggle_sources, toolbar)
+        self.camera_button.setProperty("iconName", "camera")
+        layout.addLayout(toolbar)
+        controls = QHBoxLayout()
+        self.start_button = self.button("Start", self.start_selected, controls, primary=True)
+        self.start_button.setProperty("iconName", "play")
+        self.stop_button = self.button("Stop", self.stop_selected, controls)
+        self.stop_button.setProperty("iconName", "stop")
+        controls.addStretch()
+        self.show_all = QCheckBox("All sources")
+        self.show_all.toggled.connect(self.selection_changed)
+        controls.addWidget(self.show_all)
+        self.edit_button = self.button("Configure road", self.edit_scene, controls)
+        self.edit_button.setProperty("iconName", "road")
+        layout.addLayout(controls)
         self.gallery_widget = QWidget()
-        self.gallery_widget.setStyleSheet("background: #0e1c25;")
+        self.gallery_widget.setObjectName("page")
         self.gallery = QGridLayout(self.gallery_widget)
-        self.empty = QLabel(
-            "Add a camera or import a video to begin.\nCamera discovery never starts capture."
+        self.gallery.setContentsMargins(0, 0, 0, 0)
+        self.gallery.setSpacing(12)
+        self.empty = QWidget()
+        empty_layout = QVBoxLayout(self.empty)
+        empty_layout.addStretch()
+        empty_layout.addWidget(label("Your road, in focus", "pageTitle"))
+        empty_layout.addWidget(
+            label(
+                "Import a recording or connect a camera. Detection works straight away; "
+                "add a counting line or road area for traffic measurements.",
+                "muted",
+            )
         )
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_actions = QHBoxLayout()
+        self.button("Import a video…", self.import_video, empty_actions, primary=True)
+        self.button("Connect a camera…", self.toggle_sources, empty_actions)
+        empty_actions.addStretch()
+        empty_layout.addLayout(empty_actions)
+        empty_layout.addStretch()
         self.gallery.addWidget(self.empty, 0, 0)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.gallery_widget)
-        main.addWidget(scroll, 4)
-        cards = QHBoxLayout()
+        layout.addWidget(scroll, 1)
+        strip = QFrame()
+        strip.setObjectName("metricStrip")
+        metrics = QHBoxLayout(strip)
+        metrics.setContentsMargins(0, 16, 0, 16)
         self.metrics = {}
-        for title in ("Visible tracks", "Crossing events", "Queued vehicles", "Congestion"):
-            card = QFrame()
-            card.setObjectName("card")
-            stack = QVBoxLayout(card)
-            stack.addWidget(QLabel(title.upper()))
-            value = QLabel("—")
-            value.setObjectName("metric")
-            value.setWordWrap(True)
-            value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        for title, display in (
+            ("Crossing events", "Vehicles counted"),
+            ("Visible tracks", "Visible vehicles"),
+            ("Queued vehicles", "Queue size"),
+            ("Congestion", "Road conditions"),
+        ):
+            stack = QVBoxLayout()
+            stack.addWidget(label(display, "muted"))
+            value = label("—", "metric")
             value.setAccessibleName(title)
             stack.addWidget(value)
-            cards.addWidget(card)
+            metrics.addLayout(stack, 1)
             self.metrics[title] = value
-        main.addLayout(cards)
-        self.live_status = QLabel("No source selected")
-        self.live_status.setWordWrap(True)
-        main.addWidget(self.live_status)
+        layout.addWidget(strip)
+        self.monitor_hint = label("Import a video or connect a camera to get started.", "muted")
+        layout.addWidget(self.monitor_hint)
+        self.live_details = Foldout("Details")
+        self.live_status = label("No source selected", "muted")
+        self.live_details.body_layout.addWidget(self.live_status)
         details = QSplitter(Qt.Orientation.Horizontal)
         self.count_table = table(["Line", "Vehicle", "Direction", "Crossings"])
-        self.zone_table = table(["Zone", "Vehicles", "Image occupancy", "Queue", "Congestion"])
+        self.zone_table = table(["Area", "Vehicles", "Occupancy", "Queue", "Conditions"])
         details.addWidget(self.count_table)
         details.addWidget(self.zone_table)
-        main.addWidget(details, 2)
+        details.setMaximumHeight(175)
+        self.live_details.body_layout.addWidget(details)
+        layout.addWidget(self.live_details)
         self.tabs.addWidget(page)
+        self.build_source_controls()
 
     def build_history(self):
         page = QWidget()
@@ -562,10 +586,11 @@ class DesktopWindow(QMainWindow):
         previous = self.selected_source()
         self.source_list.blockSignals(True)
         self.source_list.clear()
+        self.source_selector.blockSignals(True)
+        self.source_selector.clear()
         for source in self.sources:
-            self.source_list.addItem(
-                f"{source.name}\n{source.kind} • {source.camera_id or source.name}"
-            )
+            self.source_list.addItem(source.name)
+            self.source_selector.addItem(source.name)
             self.source_list.item(self.source_list.count() - 1).setToolTip(
                 f"{source.name}\n{source.value}\nCamera ID: {source.camera_id or source.name}"
             )
@@ -575,15 +600,20 @@ class DesktopWindow(QMainWindow):
                 pane.deleteLater()
                 del self.panes[name]
         self.empty.setVisible(not self.sources)
-        for index, source in enumerate(self.sources):
+        for source in self.sources:
             if source.name not in self.panes:
                 self.panes[source.name] = SourcePane(source)
-            self.gallery.addWidget(self.panes[source.name], index // 2, index % 2)
+            try:
+                self.panes[source.name].preview.scene = scene_for_source(source.scene)
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                self.panes[source.name].status.setText(f"Road configuration unavailable: {error}")
+            self.panes[source.name].preview.show_geometry = True
         selected = next(
             (i for i, s in enumerate(self.sources) if previous and s.name == previous.name), 0
         )
         self.source_list.setCurrentRow(selected if self.sources else -1)
         self.source_list.blockSignals(False)
+        self.source_selector.blockSignals(False)
         self.selection_changed()
 
     def selection_changed(self):
@@ -591,6 +621,22 @@ class DesktopWindow(QMainWindow):
             return
         source = self.selected_source()
         result = self.latest.get(source.name) if source else None
+        self.source_selector.blockSignals(True)
+        self.source_selector.setCurrentIndex(self.source_list.currentRow())
+        self.source_selector.setToolTip(source.name if source else "Choose a source")
+        self.source_selector.blockSignals(False)
+        visible = [s for s in self.sources if self.show_all.isChecked() or s == source]
+        for item in self.sources:
+            pane = self.panes[item.name]
+            self.gallery.removeWidget(pane)
+            pane.setVisible(item in visible)
+            pane.title.setVisible(self.show_all.isChecked())
+        for index, item in enumerate(visible):
+            self.gallery.addWidget(
+                self.panes[item.name],
+                index // 2 if len(visible) > 1 else 0,
+                index % 2 if len(visible) > 1 else 0,
+            )
         self.update_live(result)
 
     def add_source(self, source):
@@ -1279,6 +1325,36 @@ class DesktopWindow(QMainWindow):
         for position, button in enumerate(self.nav_buttons):
             button.setChecked(position == index)
         self.refresh_history()
+
+    def page(self):
+        page = QWidget()
+        page.setObjectName("page")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(28, 24, 28, 16)
+        layout.setSpacing(16)
+        return page, layout
+
+    def select_source_index(self, index):
+        self.source_list.setCurrentRow(index)
+
+    def toggle_sources(self):
+        self.source_controls.toggle.setChecked(not self.source_controls.toggle.isChecked())
+
+    def build_source_controls(self):
+        self.source_controls = Foldout("Sources")
+        controls = self.source_controls.body_layout
+        self.source_list = QListWidget()
+        self.source_list.setMaximumHeight(120)
+        self.source_list.currentRowChanged.connect(self.selection_changed)
+        controls.addWidget(self.source_list)
+        self.camera_selector = QComboBox()
+        controls.addWidget(self.camera_selector)
+        actions = QHBoxLayout()
+        self.discover_button = self.button("Find cameras", self.discover_cameras, actions)
+        self.button("Add camera", self.add_camera, actions)
+        self.remove_button = self.button("Remove source", self.remove_source, actions)
+        controls.addLayout(actions)
+        self.tabs.widget(0).layout().addWidget(self.source_controls)
 
 
 def main(argv=None):

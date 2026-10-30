@@ -127,6 +127,7 @@ def apply_appearance(widget, dark=False):
         QLabel#brand {{ font-size: {TYPE["section"]}px; font-weight: 600; }}
         QLabel#pageTitle {{ font-size: {TYPE["title"]}px; font-weight: 600; }}
         QLabel#subtitle, QLabel#muted {{ color: {c["muted"]}; }}
+        QLabel[error="true"] {{ color: {c["error"]}; }}
         QLabel#metric {{ font-size: {TYPE["metric"]}px; font-weight: 500; }}
         QFrame#metricStrip {{ border-top: 1px solid {c["rule"]};
             border-bottom: 1px solid {c["rule"]};
@@ -296,3 +297,11 @@ class Foldout(QWidget):
 
 def colors_for(widget):
     return DARK if widget.palette().color(QPalette.ColorRole.Window).lightness() < 128 else LIGHT
+
+
+def feedback(widget, text, *, error=False):
+    widget.setText(text)
+    widget.setProperty("error", error)
+    widget.setAccessibleDescription(text)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)

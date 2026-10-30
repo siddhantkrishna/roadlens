@@ -274,3 +274,24 @@ def test_scene_undo_restores_deleted_geometry_and_cancel_keeps_original(qt_app):
     editor.reject()
     assert scene.lines[0].id == "line"
     editor.close()
+
+
+def test_scene_load_failure_is_visible_and_preserves_geometry(qt_app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    original = Scene(lines=(CountingLine("line", (0.1, 0.5), (0.9, 0.5)),))
+    bad = tmp_path / "invalid.json"
+    bad.write_text('{"version": 999}')
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a: (str(bad), ""))
+    editor = SceneEditor(original, image())
+    editor.load_scene()
+    assert editor.scene == original and editor.status.property("error")
+    editor.count_tool.click()
+    editor.canvas.points = [(0.1, 0.5)]
+    editor.save()
+    assert not editor.result() and len(editor.canvas.points) == 1
+    editor.close()

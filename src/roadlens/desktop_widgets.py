@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from roadlens.desktop_design import colors_for, heading, label
+from roadlens.desktop_design import colors_for, feedback, heading, label
 from roadlens.traffic.scene import CountingLine, Scene, Zone
 
 
@@ -410,12 +410,12 @@ class SceneEditor(QDialog):
             if self.scene != updated:
                 self.history.append(self.scene)
             self.scene = updated
-            self.status.setText("Measurement added. Save to use it in the next session.")
+            feedback(self.status, "Measurement added. Save to use it in the next session.")
             self.refresh()
             self.new_geometry()
             return True
         except (ValueError, TypeError) as error:
-            self.status.setText(str(error))
+            feedback(self.status, str(error), error=True)
             return False
 
     def undo(self):
@@ -442,11 +442,14 @@ class SceneEditor(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "Load scene", "", "Scene JSON (*.json)")
         if path:
             try:
-                self.scene = Scene.load(Path(path))
+                loaded = Scene.load(Path(path))
+                self.history.append(self.scene)
+                self.scene = loaded
                 self.refresh()
                 self.new_geometry()
+                feedback(self.status, "Scene loaded. Save to apply it to the next session.")
             except (OSError, ValueError, TypeError, KeyError) as error:
-                self.status.setText(str(error))
+                feedback(self.status, str(error), error=True)
 
     def save(self):
         if self.canvas.points and not self.apply_geometry():
@@ -458,6 +461,8 @@ class SceneEditor(QDialog):
 
     def begin_tool(self, kind):
         if self.canvas.points and not self.apply_geometry():
+            self.count_tool.setChecked(self.kind.currentText() == "line")
+            self.road_tool.setChecked(self.kind.currentText() == "road")
             return
         self.kind.setCurrentText(kind)
         self.new_geometry()

@@ -529,7 +529,31 @@ class DesktopWindow(QMainWindow):
         charts.addWidget(self.chart, 0, 0)
         charts.addLayout(heatmap_box, 0, 1)
         self.classification_chart = ClassificationChart()
-        charts.addWidget(self.classification_chart, 1, 0, 1, 2)
+        charts.addWidget(self.classification_chart, 1, 0)
+        conditions = QWidget()
+        condition_layout = QVBoxLayout(conditions)
+        condition_layout.setContentsMargins(0, 0, 0, 0)
+        condition_controls = QHBoxLayout()
+        self.condition_area = QComboBox()
+        self.condition_area.setAccessibleName("Road area for condition measurements")
+        self.condition_area.currentIndexChanged.connect(self.change_condition_series)
+        self.condition_metric = QComboBox()
+        self.condition_metric.setAccessibleName("Road condition measurement")
+        for title, key in (
+            ("Occupancy", "occupancy"),
+            ("Congested time", "congestion"),
+            ("Queue size", "queue"),
+        ):
+            self.condition_metric.addItem(title, key)
+        self.condition_metric.currentIndexChanged.connect(self.change_condition_series)
+        condition_controls.addWidget(self.condition_area, 1)
+        condition_controls.addWidget(self.condition_metric, 1)
+        condition_layout.addLayout(condition_controls)
+        self.condition_chart = FlowChart()
+        self.condition_chart.measure_kind = "occupancy"
+        self.condition_chart.setAccessibleName("Recorded road conditions and queues")
+        condition_layout.addWidget(self.condition_chart)
+        charts.addWidget(conditions, 1, 1)
         analysis.addLayout(charts)
         self.records = Foldout("Crossings, queues and anomalies")
         self.history_counts = table(["Line", "Vehicle", "Direction", "Crossings"])
@@ -1163,6 +1187,7 @@ class DesktopWindow(QMainWindow):
             if name == "history":
                 self.report_data = None
                 self.classification_chart.set_data({})
+                self.condition_chart.set_windows([])
                 self.analysis_scroll.hide()
                 self.analysis_empty.setText(
                     "Session data could not be read. Check the database in Settings."
@@ -1280,6 +1305,17 @@ class DesktopWindow(QMainWindow):
         self.chart.series = selected_series
         self.chart.set_windows(data["windows"])
         self.classification_chart.set_data(data)
+        self.condition_chart.set_windows(data["windows"])
+        selected_area = self.condition_area.currentData()
+        self.condition_area.blockSignals(True)
+        self.condition_area.clear()
+        if selected:
+            for zone in json.loads(selected["scene_json"])["zones"]:
+                if zone["kind"] != "exclude":
+                    self.condition_area.addItem(zone["name"], zone["id"])
+        self.condition_area.setCurrentIndex(max(0, self.condition_area.findData(selected_area)))
+        self.condition_area.blockSignals(False)
+        self.change_condition_series()
         image, maximum = heatmap_image(data["heatmap"])
         self.heatmap.set_image(image)
         self.heatmap_caption.setText(
@@ -1735,6 +1771,15 @@ class DesktopWindow(QMainWindow):
     def select_history_index(self, index):
         if 0 <= index < len(self.history_rows):
             self.sessions.selectRow(index)
+
+    def change_condition_series(self, *_):
+        self.condition_chart.zone = self.condition_area.currentData() or ""
+        self.condition_chart.measure_kind = self.condition_metric.currentData() or "occupancy"
+        self.condition_chart.setAccessibleDescription(
+            f"{self.condition_metric.currentText()} for {self.condition_area.currentText()}. "
+            "Only saved observed measurement windows are plotted."
+        )
+        self.condition_chart.update()
 
 
 def main(argv=None):

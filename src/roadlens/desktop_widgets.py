@@ -528,6 +528,7 @@ class FlowChart(QWidget):
     def __init__(self):
         super().__init__()
         self.windows, self.series = [], ""
+        self.measure_kind, self.zone = "flow", ""
         self.setMinimumSize(270, 235)
         self.setAccessibleName("Observed directional traffic flow")
 
@@ -547,22 +548,36 @@ class FlowChart(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor(c["surface"]))
         painter.setPen(QColor(c["text"]))
-        painter.drawText(16, 24, "Traffic flow")
+        title, units = {
+            "flow": ("Traffic flow", "Vehicles per observed minute"),
+            "occupancy": ("Road occupancy", "Occupied road area (%)"),
+            "congestion": ("Congested time", "Fraction of observed time (%)"),
+            "queue": ("Mean queue size", "Vehicles in the selected queue area"),
+        }[self.measure_kind]
+        painter.drawText(16, 24, title)
         painter.setPen(QColor(c["muted"]))
-        painter.drawText(16, 43, "Vehicles per observed minute")
+        painter.drawText(16, 43, units)
         points = [w for w in self.windows if w["observed_seconds"] > 0]
-        values = [w["flow_per_minute"].get(self.series) for w in points]
+        values = [self.value(w) for w in points]
         measured = [v for v in values if v is not None]
         if not measured:
             painter.drawText(
                 self.rect().adjusted(16, 50, -16, -16),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                "No measured flow yet. Configure a counting line and analyze a source.",
+                (
+                    "No measured flow yet. Configure a counting line."
+                    if self.measure_kind == "flow"
+                    else "No observed data for this area and measurement."
+                ),
             )
             return
         largest = max(1, max(measured))
         step = 10 ** math.floor(math.log10(largest))
-        maximum = math.ceil(largest / step) * step
+        maximum = (
+            100
+            if self.measure_kind in ("occupancy", "congestion")
+            else math.ceil(largest / step) * step
+        )
         graph = QRectF(50, 65, self.width() - 72, self.height() - 120)
         left = min(w["start_time"] for w in points)
         right = max(left + 1, max(w["end_time"] for w in points))
@@ -594,7 +609,11 @@ class FlowChart(QWidget):
             previous = window["end_time"]
         painter.drawPath(path)
         painter.setPen(QColor(c["muted"]))
-        legend = self.series.replace("/", " / ").replace("_", " ")
+        legend = (
+            self.series.replace("/", " / ").replace("_", " ")
+            if self.measure_kind == "flow"
+            else f"Area: {self.zone}. Gaps are unobserved time."
+        )
         painter.drawText(
             16,
             self.height() - 9,
@@ -602,6 +621,22 @@ class FlowChart(QWidget):
                 legend, Qt.TextElideMode.ElideRight, self.width() - 32
             ),
         )
+
+    def value(self, window):
+        if self.measure_kind == "flow":
+            return window["flow_per_minute"].get(self.series)
+        values = window["zones"].get(self.zone, {})
+        if self.measure_kind == "occupancy":
+            value = values.get("image_occupancy")
+            return value * 100 if value is not None else None
+        if self.measure_kind == "congestion":
+            value = values.get("congested_seconds")
+            return (
+                value * 100 / window["observed_seconds"]
+                if value is not None and window["observed_seconds"] > 0
+                else None
+            )
+        return values.get("mean_queued_vehicles")
 
 
 def scene_for_source(path: str | None) -> Scene:

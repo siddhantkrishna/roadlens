@@ -57,3 +57,22 @@ def test_focus_outline_preserves_input_dimensions():
     assert outline.frame.widget() == first
     assert first.size() == before
     window.close()
+
+
+def test_video_onboarding_reads_a_real_frame_before_start(tmp_path):
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+    from test_desktop import spin
+
+    from roadlens.config import SourceConfig
+    from roadlens.desktop import DesktopWindow, default_config
+
+    app = QApplication.instance() or QApplication([])
+    window = DesktopWindow(default_config(tmp_path), tmp_path)
+    video = Path(__file__).resolve().parents[1] / "assets/traffic.avi"
+    window.add_source(SourceConfig("Recording", "video", str(video), False))
+    spin(app, lambda: not window.jobs)
+    assert not window.pipelines
+    assert not window.panes["Recording"].raw_image.isNull()
+    window.close()

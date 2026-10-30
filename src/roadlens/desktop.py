@@ -227,6 +227,9 @@ class DesktopWindow(QMainWindow):
         self.history_timer.timeout.connect(self.refresh_history)
         self.history_timer.start(2000)
         self.refresh_history()
+        for source in self.sources:
+            if source.kind == "video":
+                self.load_video_preview(source)
 
     def build_ui(self):
         content = QWidget()
@@ -649,6 +652,8 @@ class DesktopWindow(QMainWindow):
         self.sync_sources()
         self.source_list.setCurrentRow(len(self.sources) - 1)
         self.persist()
+        if source.kind == "video":
+            self.load_video_preview(source)
 
     def discover_cameras(self):
         self.discover_button.setEnabled(False)
@@ -689,9 +694,12 @@ class DesktopWindow(QMainWindow):
         )
         for path in paths:
             identity = hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()[:12]
+            name = Path(path).stem
+            if any(s.name == name and s.value != str(Path(path).resolve()) for s in self.sources):
+                name = f"{name} [{identity[:5]}]"
             self.add_source(
                 SourceConfig(
-                    f"{Path(path).stem} [{identity[:5]}]",
+                    name,
                     "video",
                     str(Path(path).resolve()),
                     realtime=False,
@@ -699,7 +707,7 @@ class DesktopWindow(QMainWindow):
                 )
             )
         if paths:
-            self.statusBar().showMessage("Video imported. Start selected to analyze every frame.")
+            self.statusBar().showMessage("Video imported. Press Start to analyze every frame.")
 
     def start_source(self, source):
         if self.closing or self.active(source.name):
@@ -1385,6 +1393,28 @@ class DesktopWindow(QMainWindow):
         self.sources_dialog.open()
         if self.camera_selector.count() == 0:
             self.discover_cameras()
+
+    def load_video_preview(self, source):
+        def read():
+            from roadlens.capture import OpenCVCapture
+
+            capture = OpenCVCapture(source, self.config)
+            try:
+                return qimage(capture.read())
+            finally:
+                capture.close()
+
+        def loaded(image):
+            if source not in self.sources or self.active(source.name) or source.name in self.latest:
+                return
+            pane = self.panes[source.name]
+            pane.raw_image = image
+            pane.preview.set_image(image)
+            pane.preview.scene = scene_for_source(source.scene)
+            pane.preview.show_geometry = True
+            pane.status.setText("Ready · configure the road or press Start")
+
+        self.launch_job(f"preview:{source.name}", read, loaded)
 
 
 def main(argv=None):

@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -635,81 +634,178 @@ class DesktopWindow(QMainWindow):
         self.tabs.addWidget(page)
 
     def build_settings(self):
-        page = QWidget()
-        layout = QHBoxLayout(page)
-        group = QGroupBox("Camera and inference settings • apply between sessions")
-        form = QFormLayout(group)
+        page, layout = self.page()
+        heading(
+            layout,
+            "Settings",
+            "Camera preferences, local storage and the details that make analysis work.",
+        )
         self.appearance = QComboBox()
         self.appearance.addItems(["System", "Light", "Dark"])
         self.appearance.setAccessibleName("Appearance")
         self.appearance.currentTextChanged.connect(self.change_appearance)
-        form.addRow("Appearance", self.appearance)
+        appearance_row = QHBoxLayout()
+        appearance_row.addWidget(QLabel("Appearance"))
+        appearance_row.addWidget(self.appearance)
+        appearance_row.addStretch()
+        layout.addLayout(appearance_row)
+        self.settings_note = label(
+            "Changes apply to the next session. Stop active sources before saving.", "muted"
+        )
+        layout.addWidget(self.settings_note)
+        content = QWidget()
+        content.setObjectName("page")
+        settings = QVBoxLayout(content)
+        settings.setContentsMargins(0, 0, 8, 0)
+        settings.setSpacing(16)
         self.model_edit = QLineEdit()
         self.database_edit = QLineEdit()
-        for field_title, widget, callback in (
-            ("ONNX model", self.model_edit, self.choose_model),
-            ("SQLite database", self.database_edit, self.choose_database),
+        self.settings_fields = {}
+        sections = {}
+        for title in ("Camera", "Performance", "Storage", "Detection and traffic thresholds"):
+            section = Foldout(title)
+            form = QFormLayout()
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            form.setVerticalSpacing(12)
+            section.body_layout.addLayout(form)
+            sections[title] = (section, form)
+            settings.addWidget(section)
+        sections["Camera"][0].toggle.setChecked(True)
+        for title, text, widget, callback in (
+            ("Performance", "Detection model", self.model_edit, self.choose_model),
+            ("Storage", "Session database", self.database_edit, self.choose_database),
         ):
             row = QHBoxLayout()
-            row.addWidget(widget)
-            self.button("Browse…", callback, row)
-            form.addRow(field_title, row)
-        self.settings_fields = {}
-        for key, field_title, low, high, decimals in (
-            ("width", "Requested width", 160, 3840, 0),
-            ("height", "Requested height", 120, 2160, 0),
-            ("capture_fps", "Requested camera FPS", 1, 120, 0),
-            ("inference_fps", "Inference cap / source", 0.1, 30, 1),
-            ("threads", "OpenCV CPU threads", 1, 16, 0),
-            ("confidence", "Display confidence", 0.1, 0.99, 2),
-            ("detection_floor", "Detection floor", 0.1, 0.98, 2),
-            ("track_activation", "Track activation", 0.11, 0.99, 2),
-            ("retention_days", "Session retention (days)", 1, 36500, 0),
-            ("window_seconds", "Flow window (seconds)", 0.1, 3600, 1),
-            ("queue_min_vehicles", "Minimum queue vehicles", 1, 1000, 0),
-            ("queue_seconds", "Queue persistence (seconds)", 0.1, 3600, 1),
-            ("congestion_occupancy", "Congestion image occupancy", 0.01, 1, 2),
+            widget.setAccessibleName(text)
+            row.addWidget(widget, 1)
+            self.button("Choose…", callback, row)
+            sections[title][1].addRow(text, row)
+        for section, key, text, low, high, decimals in (
+            ("Camera", "width", "Video width", 160, 3840, 0),
+            ("Camera", "height", "Video height", 120, 2160, 0),
+            ("Camera", "capture_fps", "Camera frames / second", 1, 120, 0),
+            ("Performance", "inference_fps", "Analysis frames / second", 0.1, 30, 1),
+            ("Performance", "threads", "CPU threads", 1, 16, 0),
+            ("Detection and traffic thresholds", "confidence", "Display confidence", 0.1, 0.99, 2),
+            (
+                "Detection and traffic thresholds",
+                "detection_floor",
+                "Detection floor",
+                0.1,
+                0.98,
+                2,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "track_activation",
+                "Track activation",
+                0.11,
+                0.99,
+                2,
+            ),
+            ("Storage", "retention_days", "Keep sessions for (days)", 1, 36500, 0),
+            (
+                "Detection and traffic thresholds",
+                "window_seconds",
+                "Flow window (seconds)",
+                0.1,
+                3600,
+                1,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "queue_min_vehicles",
+                "Minimum queue size",
+                1,
+                1000,
+                0,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "queue_seconds",
+                "Queue persistence (seconds)",
+                0.1,
+                3600,
+                1,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "congestion_occupancy",
+                "Congestion occupancy",
+                0.01,
+                1,
+                2,
+            ),
         ):
             widget = QDoubleSpinBox() if decimals else QSpinBox()
             widget.setRange(low, high)
             if decimals:
                 widget.setDecimals(decimals)
                 widget.setSingleStep(0.01 if decimals == 2 else 0.1)
-            widget.setAccessibleName(field_title)
+            widget.setMaximumWidth(220)
+            widget.setAccessibleName(text)
             widget.valueChanged.connect(lambda _, key=key: self.settings_changed.add(key))
             widget.lineEdit().textEdited.connect(lambda _, key=key: self.settings_changed.add(key))
             self.settings_fields[key] = widget
-            form.addRow(field_title, widget)
-        self.apply_button = QPushButton("Apply and save settings")
-        self.apply_button.setObjectName("primary")
-        self.apply_button.clicked.connect(self.apply_settings)
-        form.addRow(self.apply_button)
-        button = QPushButton("Import existing TOML configuration…")
-        button.clicked.connect(self.import_config)
-        form.addRow(button)
-        note = QLabel(
-            "Resolution/FPS are requests negotiated by macOS. "
-            "CPU defaults: 2 threads, 8 inferences/sec per source. "
-            "Completed sessions older than retention are pruned by the existing service "
-            "when a new analysis starts. Export valuable history before reducing retention."
+            sections[section][1].addRow(text, widget)
+        sections["Camera"][1].addRow(
+            label("macOS negotiates resolution and frame rate with the camera.", "muted")
         )
-        note.setWordWrap(True)
-        form.addRow(note)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(group)
-        layout.addWidget(scroll, 1)
-        diagnostics = QVBoxLayout()
-        layout.addLayout(diagnostics, 1)
-        diagnostics.addWidget(QLabel("DIAGNOSTICS"))
+        self.button("Camera permission help", self.camera_help, sections["Camera"][0].body_layout)
+        sections["Performance"][1].addRow(
+            label(
+                "Recommended on Intel: 2 CPU threads and 8 analyses per second per live source. "
+                "Imported recordings analyze every frame.",
+                "muted",
+            )
+        )
+        sections["Storage"][1].addRow(
+            label(
+                "Older completed sessions are pruned when a new analysis starts. "
+                "Export valuable sessions before reducing retention.",
+                "muted",
+            )
+        )
+        self.button("Open data folder", self.open_data, sections["Storage"][0].body_layout)
+        privacy = Foldout("Privacy and diagnostics")
+        privacy.body_layout.addWidget(
+            label(
+                "Video and inference stay on this Mac. ROADLENS stores traffic measurements "
+                "and trajectories, not camera recordings. "
+                "Exports can include camera names and movement data. "
+                "Only load models and videos from sources you trust.",
+                "muted",
+            )
+        )
         self.diagnostics = QTextEdit()
         self.diagnostics.setReadOnly(True)
-        self.diagnostics.setToolTip(
-            "Live diagnostics update once per second; pause while focused for copying."
+        self.diagnostics.setAccessibleName("Local processing diagnostics")
+        self.diagnostics.setMinimumHeight(230)
+        self.diagnostics.setToolTip("Updates once a second; focus to pause updates and copy text.")
+        privacy.body_layout.addWidget(self.diagnostics)
+        self.diagnostic_section = privacy
+        settings.addWidget(privacy)
+        advanced = Foldout("Import configuration")
+        self.button("Import TOML configuration…", self.import_config, advanced.body_layout)
+        advanced.body_layout.addWidget(
+            label(
+                "Imports existing sources, geometry paths and advanced processing options. "
+                "Your recorded sessions are preserved.",
+                "muted",
+            )
         )
-        diagnostics.addWidget(self.diagnostics, 1)
-        self.button("Camera permission help", self.camera_help, diagnostics)
-        self.button("Open local data folder", self.open_data, diagnostics)
+        settings.addWidget(advanced)
+        settings.addStretch()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+        footer = QHBoxLayout()
+        self.apply_button = self.button("Save settings", self.apply_settings, footer, primary=True)
+        self.button("Revert changes", self.populate_settings, footer)
+        footer.addStretch()
+        layout.addLayout(footer)
         self.tabs.addWidget(page)
 
     def selected_source(self):
@@ -1162,7 +1258,7 @@ class DesktopWindow(QMainWindow):
             self.close()
 
     def update_diagnostics(self):
-        if self.diagnostics.hasFocus():
+        if self.diagnostics.hasFocus() or self.diagnostics.textCursor().hasSelection():
             return
         lines = [
             f"ROADLENS 0.1.0 | Python {platform.python_version()} | {platform.machine()}",

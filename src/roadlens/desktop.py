@@ -56,6 +56,7 @@ from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, fon
 from roadlens.desktop_widgets import (
     ClassificationChart,
     FlowChart,
+    HeatmapLegend,
     Preview,
     SceneEditor,
     scene_for_source,
@@ -526,6 +527,9 @@ class DesktopWindow(QMainWindow):
         heatmap_box = QVBoxLayout()
         heatmap_box.addWidget(self.heatmap_caption)
         heatmap_box.addWidget(self.heatmap, 1)
+        self.heatmap.setAccessibleName("Vehicle movement from observed dwell")
+        self.heatmap_legend = HeatmapLegend()
+        heatmap_box.addWidget(self.heatmap_legend)
         charts.addWidget(self.chart, 0, 0)
         charts.addLayout(heatmap_box, 0, 1)
         self.classification_chart = ClassificationChart()
@@ -1195,6 +1199,7 @@ class DesktopWindow(QMainWindow):
                 self.analysis_empty.show()
                 self.chart.set_windows([])
                 self.heatmap.set_image(QImage())
+                self.heatmap_legend.set_scale(None)
                 self.heatmap_caption.setText("Heatmap unavailable while history cannot be read")
                 fill_table(self.history_counts, [])
                 fill_table(self.events, [])
@@ -1318,11 +1323,8 @@ class DesktopWindow(QMainWindow):
         self.change_condition_series()
         image, maximum = heatmap_image(data["heatmap"])
         self.heatmap.set_image(image)
-        self.heatmap_caption.setText(
-            f"Observed dwell • relative scale 0–{maximum:.3f} vehicle-seconds/cell"
-            if not image.isNull()
-            else "No saved dwell observations yet"
-        )
+        self.heatmap_caption.setText("Vehicle movement")
+        self.heatmap_legend.set_scale(maximum if not image.isNull() else None)
         fill_table(
             self.history_counts,
             [(c["object_id"], c["category"], c["direction"], c["count"]) for c in data["counts"]],

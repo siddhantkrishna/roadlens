@@ -696,3 +696,44 @@ class ClassificationChart(QWidget):
                 QRectF(100, y, (self.width() - 165) * count / maximum, 14), QColor(c["chart"])
             )
             painter.drawText(self.width() - 45, y + 13, str(count))
+
+
+class HeatmapLegend(QWidget):
+    def __init__(self):
+        super().__init__()
+        from roadlens.desktop_data import qimage
+        from roadlens.traffic.service import heatmap_pixels
+
+        pixels, _ = heatmap_pixels([list(range(256))])
+        self.ramp = qimage(pixels)
+        self.scale_max = None
+        self.setMinimumHeight(54)
+        self.setAccessibleName("Observed vehicle dwell heatmap scale")
+
+    def set_scale(self, maximum):
+        self.scale_max = maximum
+        self.setAccessibleDescription(
+            f"0 to {maximum:.3g} vehicle-seconds per cell. Relative to this session."
+            if maximum is not None
+            else "No observed heatmap data."
+        )
+        self.update()
+
+    def paintEvent(self, event):
+        c = colors_for(self)
+        painter = QPainter(self)
+        painter.setPen(QColor(c["muted"]))
+        if self.scale_max is None:
+            painter.drawText(0, 24, "No saved dwell observations")
+            return
+        if self.scale_max == 0:
+            painter.drawText(0, 24, "0 vehicle-seconds per cell recorded")
+            return
+        painter.drawImage(QRectF(0, 0, self.width(), 12), self.ramp)
+        painter.drawText(0, 32, "0")
+        painter.drawText(
+            self.rect().adjusted(0, 18, 0, 0),
+            Qt.AlignmentFlag.AlignRight,
+            f"{self.scale_max:.3g} vehicle-seconds / cell",
+        )
+        painter.drawText(0, 51, "Relative to this session. No background image is stored.")

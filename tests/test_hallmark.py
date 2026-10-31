@@ -321,3 +321,15 @@ def test_calibration_changes_validate_and_survive_geometry_apply(qt_app):
     assert invalid.result() != 1 and "Calibration" in invalid.status.text()
     editor.close()
     invalid.close()
+
+
+def test_heatmap_legend_distinguishes_missing_zero_and_observed_dwell(qt_app):
+    from roadlens.desktop_widgets import HeatmapLegend
+
+    legend = HeatmapLegend()
+    for value in (None, 0, 0.083333):
+        legend.set_scale(value)
+        assert legend.scale_max == value
+        assert not legend.grab().isNull()
+    assert "0.0833" in legend.accessibleDescription()
+    legend.close()

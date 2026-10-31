@@ -333,3 +333,24 @@ def test_heatmap_legend_distinguishes_missing_zero_and_observed_dwell(qt_app):
         assert not legend.grab().isNull()
     assert "0.0833" in legend.accessibleDescription()
     legend.close()
+
+
+def test_event_records_show_real_units_and_handle_unreadable_details():
+    import json
+
+    from roadlens.desktop_data import event_row
+
+    record = {
+        "kind": "queue_started",
+        "source_time": 4.5,
+        "object_id": "road",
+        "category": None,
+        "direction": None,
+        "details_json": json.dumps({"vehicles": 4}),
+    }
+    assert event_row(record)[1] == "Queue formed"
+    assert event_row(record)[4] == "4 vehicles in the queue"
+    record.update(kind="observation_gap", details_json=json.dumps({"seconds": 2.5}))
+    assert "2.5 s" in event_row(record)[4]
+    record["details_json"] = "invalid"
+    assert "could not be read" in event_row(record)[4]

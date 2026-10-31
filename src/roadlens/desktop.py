@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
 from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
-from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
+from roadlens.desktop_data import event_row, export_pdf, heatmap_image, qimage, read_history
 from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, font, heading, label
 from roadlens.desktop_widgets import (
     ClassificationChart,
@@ -563,6 +563,15 @@ class DesktopWindow(QMainWindow):
         self.history_counts = table(["Line", "Vehicle", "Direction", "Crossings"])
         self.history_counts.setMaximumHeight(160)
         self.records.body_layout.addWidget(self.history_counts)
+        self.event_filter = QComboBox()
+        self.event_filter.addItems(
+            ["All events", "Queues", "Anomalies", "Crossings", "Observation gaps"]
+        )
+        self.event_filter.setAccessibleName("Event records to show")
+        self.event_filter.currentIndexChanged.connect(self.refresh_event_table)
+        self.records.body_layout.addWidget(self.event_filter)
+        self.events_hint = label("No events recorded in this session.", "muted")
+        self.records.body_layout.addWidget(self.events_hint)
         self.events = table(["Time (s)", "Event", "Area / line", "Vehicle", "Details"])
         self.events.setMaximumHeight(180)
         self.records.body_layout.addWidget(self.events)
@@ -1329,19 +1338,7 @@ class DesktopWindow(QMainWindow):
             self.history_counts,
             [(c["object_id"], c["category"], c["direction"], c["count"]) for c in data["counts"]],
         )
-        fill_table(
-            self.events,
-            [
-                (
-                    f"{e['source_time']:.2f}",
-                    e["kind"],
-                    e["object_id"],
-                    e["category"],
-                    e["details_json"] if e["kind"] != "crossing" else e["direction"],
-                )
-                for e in data["events"]
-            ],
-        )
+        self.refresh_event_table()
         if selected:
             scene = json.loads(selected["scene_json"])
             total = sum(c["count"] for c in data["counts"])
@@ -1782,6 +1779,21 @@ class DesktopWindow(QMainWindow):
             "Only saved observed measurement windows are plotted."
         )
         self.condition_chart.update()
+
+    def refresh_event_table(self, *_):
+        events = (self.report_data or {}).get("events", [])
+        groups = {
+            1: {"queue_started", "queue_cleared"},
+            2: {"anomaly", "stalled", "stalled_cleared"},
+            3: {"crossing"},
+            4: {"observation_gap"},
+        }
+        allowed = groups.get(self.event_filter.currentIndex())
+        rows = [event_row(event) for event in events if allowed is None or event["kind"] in allowed]
+        fill_table(self.events, rows)
+        self.events.setVisible(bool(rows))
+        self.events_hint.setVisible(not rows)
+        self.events_hint.setText("No matching events in the latest 200 saved records.")
 
 
 def main(argv=None):

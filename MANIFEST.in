@@ -8,6 +8,8 @@ recursive-include scripts *.py
 recursive-include .github *.yml *.yaml *.md
 recursive-include docs *.md *.json
 include docs/images/monitor.png docs/images/history.png docs/images/scene-editor.png
+include docs/images/settings.png docs/images/monitor-dark.png
+include docs/images/monitor-before.png docs/images/history-before.png docs/images/scene-editor-before.png
 include assets/README.md assets/INTEL-LICENSE.txt
 include assets/traffic.scene.json assets/traffic.annotations.json
 include assets/bus.jpg assets/traffic.avi

@@ -1,9 +1,12 @@
 # Current release verification
 
-The current source release passes **125 tests** with **one opt-in physical camera
+The current source release passes **154 tests** with **one opt-in physical camera
 test skipped**. See [release verification](docs/RELEASE_STATUS.md),
 [audit repairs](docs/AUDIT.md), and [model provenance](docs/MODEL_PROVENANCE.md).
-No new physical-camera or sustained thermal validation is claimed.
+The Hallmark redesign also passed native Cocoa screenshot review, real packaged
+recording inference from outside the checkout, and strict ad-hoc signature
+verification. Its 40 milestones preserve the existing analyzer and SQLite schema.
+No new physical-camera, VoiceOver or sustained thermal validation is claimed.
 
 The previous stage records below are historical; their counts are not current.
 

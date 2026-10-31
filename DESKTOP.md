@@ -26,54 +26,64 @@ desktop saves absolute paths when importing configuration through its menu.
 
 ## Use the desktop
 
-- **Monitor:** Discover cameras, add the actual MacBook/iPhone by native device
-  identity, and start one source or all sources. Discovery does not start capture.
-  All previews appear together; selecting a source selects its statistics.
-  Import videos with the button or Command+O. Imported recordings process every
-  frame without pacing, using video timestamps; TOML can select paced playback.
-- **Configure scene:** Start a source, stop it on an informative frame, then
-  configure geometry. Select road/lane/queue/exclusion polygons or a counting
-  line; click points, drag vertices, set an ID and direction labels, then Apply.
-  Select existing geometry to edit/delete it. Undo removes the last vertex.
-  Keyboard: arrows move the selected vertex, Backspace deletes it, Enter applies,
-  Escape clears the draft. Save also validates and applies a current draft. Invalid drafts stay open. You can
-  also load an existing scene JSON, including calibration. Invalid polygons,
-  duplicate IDs and invalid lines are rejected by the existing scene models.
-- **Scene lifecycle:** Changes apply on the next Start, which creates a new
-  analysis session with an immutable scene copy. Existing sessions keep their
-  original geometry/settings. Scene files and their calibration are preserved;
-  physical speed remains unavailable until measured calibration is verified.
-  Loading verified calibration JSON is the calibration workflow; no calibration
-  is inferred from the preview.
-- **Live statistics:** Visible tracks, line/category/direction crossing counts,
-  image occupancy, per-zone queues and congestion come from the existing traffic
-  analyzer. The queue card shows the largest zone queue, since overlapping zones
-  can contain the same vehicles. Missing geometry shows unavailable metrics.
-- **History and analysis:** Local SQLite sessions, camera filter, directional
-  counts, measured flow charts, saved dwell heatmaps, and events including queue,
-  stall, congestion and baseline anomalies. Use the Flow series selector to inspect one line/direction/vehicle class.
-  Flow updates when measured windows
-  are written (10 seconds by default), and a partial window is saved on Stop/EOF.
-  Dark-to-bright heatmap color means zero to the displayed observed
-  vehicle-seconds/cell maximum. No camera image is saved with the heatmap.
-  The UI displays at most 200 sessions, 200 events and 240 windows per read.
-- **Export:** Select a history session, choose PDF/CSV/JSON, then export.
-  PDF is a paginated session summary with counts, recent windows/events and a
-  heatmap. CSV/JSON use the existing service to export all six tables for that
-  session. Each CSV/JSON operation creates a new folder; PDF and PNG refuse to
-  overwrite existing files. All exports run off the UI thread.
-- **Settings and diagnostics:** Model/database selection, negotiated camera
-  resolution/FPS, inference cap, CPU threads, detector thresholds, retention,
-  traffic windows and queue/congestion settings. Stop all sources before Apply. Loaded numeric values retain their exact precision
-  until that field is edited; tooltips show the exact configured value.
-  Diagnostics show source state, resolved device ID, FPS, inference duration,
-  frame age, capture drops, reconnects, processed frames, errors and local paths.
+- **Monitor:** Select a source beside the video. **Import video** (Command+O)
+  reads a real first frame on a worker; **Sources…** opens camera discovery and
+  source management. Find/Add uses native device identity and does not open the
+  camera until Start. All sources exposes simultaneous previews. Start/Pause/
+  Resume/Stop control the selected source. Offline recording pause retains every
+  frame; live resume resets tracking after the gap. Camera Connecting, stale,
+  reconnecting, failure and completion states are explicit.
+- **Configure road:** Use clean footage, with optional detections. Count vehicles
+  draws a two-point line; Measure congestion draws a road polygon. Select a shape
+  or drag its vertices. Enter applies a draft; Save validates and applies it.
+  Invalid drafts stay open. Undo reverses applied geometry, drags and deletion;
+  Command+Z is scoped to the canvas, preserving normal text-field undo. L/R selects
+  the drawing tool, arrows nudge, Escape clears a draft, and Command+Backspace
+  deletes a measurement. Advanced exposes IDs, line directions, other polygon
+  types, validated JSON import and verified calibration editing. Original scene
+  schema and numeric precision are preserved.
+- **Scene lifecycle:** Changes apply on the next Start, creating a new session
+  with an immutable scene/settings snapshot. Existing sessions retain their
+  original configuration. No calibration or geometry is inferred from footage.
+- **Measurements:** Count means observed crossings, not global unique vehicles.
+  Traffic flow selects one counting line rather than summing overlapping lines.
+  Conditions require appropriate geometry and observation time; insufficient data
+  remains explicit. Details provides per-zone measurements and operational state.
+- **Analysis:** Select a saved session, then a line/direction/class for flow.
+  Windows represent actual observed time (10-second target by default; partial
+  window finalized at Stop/EOF). Separate condition selectors show occupancy (%),
+  congested time (%) or queue (vehicles). The class view uses a number when only
+  one class is present. Dwell legends use vehicle-seconds/cell or vehicle-seconds/
+  m² when the stored grid is physically calibrated. A heatmap is not a saved
+  camera photograph. Crossings, queues and anomalies opens filterable readable
+  records. Reads remain bounded to 200 sessions, 200 events and 240 windows.
+- **Sessions and comparison:** Camera filtering and compatible finalized-session
+  comparison preserve source/scene/analysis/clock identity. Totals explicitly
+  acknowledge differing durations; incompatible sessions are not compared.
+- **Export:** Choose Export… in Analysis for PDF/CSV/JSON. PDF is paginated;
+  CSV/JSON export all six session tables into a new folder. PDF/PNG refuse to
+  overwrite existing files. Workers keep the UI responsive and completion offers
+  Show folder. Existing raw service exports remain unchanged.
+- **Settings:** Appearance (System/Light/Dark), Camera, Performance, Storage,
+  Detection and traffic thresholds, Privacy and diagnostics, Import configuration.
+  Save settings requires stopped sources; Revert changes reloads saved values.
+  Loaded numbers retain exact precision until edited. Camera settings distinguish
+  requested sizes/rates from actual received format. Diagnostics use measured
+  FPS, inference time, frame age, drops, reconnects, frames and peak process RSS.
+  They include private local paths/device IDs: review before sharing. Focus pauses
+  diagnostic text refresh for copying.
+- **Keyboard/accessibility:** Command+1/2/3 opens Monitor/Analysis/Settings;
+  Command+L focuses source selection; Command+, opens Settings. Native menus,
+  accessible names/descriptions, label buddies, visible focus and logical Tab
+  order support keyboard use. Automated keyboard/scale checks are not a substitute
+  for manual VoiceOver validation. No animation is needed for state transitions.
 
 Default data location:
 
 ```text
 ~/Library/Application Support/ROADLENS/
   desktop.json             saved settings and sources (no auto-start)
+  appearance.json          system/light/dark preference
   traffic.sqlite3          SQLite/WAL traffic records
   scenes/                  immutable scene revisions
   logs/roadlens.log         rotating diagnostics

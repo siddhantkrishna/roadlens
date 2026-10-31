@@ -101,3 +101,46 @@ Hashes, public footage provenance and licensing for all captures are recorded in
 [public-assets.json](public-assets.json). The reviewer confirmation covered the
 five named findings; it is not a claim of exhaustive interaction, VoiceOver or
 physical-camera validation.
+
+
+## Final verification (2026-10-31)
+
+- Complete suite: **154 passed, 1 skipped** (the opt-in physical camera test).
+  Real ONNX and public recorded-video integration tests ran; no weights were
+  missing and no model checks were skipped.
+- Ruff lint and format: pass across 42 Python files. `pip check`: pass.
+  Bandit: no findings at the medium severity/medium confidence gate. Locked
+  dependency audit: no known vulnerabilities across 35 dependencies.
+- The public-source allowlist, reviewed asset hashes, offline secret scan and
+  staged/working equality check pass. Private files and generated binaries stay
+  ignored. Screenshot metadata contains only display DPI.
+- PyInstaller rebuilt the approximately 262 MiB Intel `ROADLENS.app`; nested
+  helper signing and `codesign --verify --deep --strict` pass. The packaged Cocoa
+  executable launched from `/tmp`, completed the 12-frame public recording,
+  exited 0 and saved the expected one car crossing in SQLite.
+- Source distribution/wheel build and content inspection pass. Packaging includes
+  all reviewed comparison/settings/dark screenshots in the source distribution,
+  and all native desktop modules and required original notices in the wheel.
+- The traffic analyzer, statistical services and SQLite schema are unchanged.
+  The necessary pipeline changes implement nonblocking playback pause/resume and
+  clean raw-image delivery, with continuity and worker-lifecycle regression tests.
+
+Hardware prompts/capture/reconnect, VoiceOver, sustained thermal behavior and
+Apple Silicon remain manual checks. Local builds are ad-hoc signed, not
+notarized. The model's exact preferred-source/export provenance still gates any
+public app/model distribution; the source-only branch and PR include neither.
+
+Launch from the project directory:
+
+```sh
+.venv/bin/python -m roadlens.desktop
+# Build, then launch the standalone app:
+.venv/bin/python scripts/build_app.py
+open dist/ROADLENS.app
+```
+
+Manual camera steps: start a real camera and accept the macOS prompt; if denied,
+enable ROADLENS / ROADLENS Camera (or the launching terminal during development)
+in System Settings → Privacy & Security → Camera, then restart capture. An iPhone
+also needs Continuity Camera enabled and Apple's normal account/connectivity
+requirements. None of these permission steps were exercised by the automated run.

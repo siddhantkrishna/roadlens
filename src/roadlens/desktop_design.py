@@ -4,9 +4,18 @@ Critique: hierarchy and restraint lead; real footage is the signature.
 Web scaffolds/render lint are replaced by Qt layout, contrast and screenshot checks.
 """
 
-from PySide6.QtCore import QObject, Qt
-from PySide6.QtGui import QPainter, QPalette, QPen
-from PySide6.QtWidgets import QApplication, QFocusFrame, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QFocusFrame,
+    QPushButton,
+    QStyle,
+    QStyleOptionButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 LIGHT = {
     "background": "#f3f4ef",
@@ -119,6 +128,8 @@ def apply_appearance(widget, dark=False):
         (QPalette.ColorRole.PlaceholderText, "muted"),
     ):
         palette.setColor(role, QColor(colors[key]))
+    widget.setProperty("roadlensAppearance", "Dark" if dark else "Light")
+    QApplication.instance().setPalette(palette)
     widget.setPalette(palette)
     c = colors
     widget.setStyleSheet(f"""
@@ -251,7 +262,9 @@ class FocusFrame(QFocusFrame):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(QPen(self.palette().color(QPalette.ColorRole.Link), 2))
+        from PySide6.QtGui import QColor
+
+        painter.setPen(QPen(QColor(colors_for(self)["focus"]), 2))
         painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 4, 4)
 
 
@@ -297,6 +310,12 @@ class Foldout(QWidget):
 
 
 def colors_for(widget):
+    current = widget
+    while current is not None:
+        mode = current.property("roadlensAppearance")
+        if mode in ("Light", "Dark"):
+            return DARK if mode == "Dark" else LIGHT
+        current = current.parentWidget()
     return DARK if widget.palette().color(QPalette.ColorRole.Window).lightness() < 128 else LIGHT
 
 
@@ -306,3 +325,27 @@ def feedback(widget, text, *, error=False):
     widget.setAccessibleDescription(text)
     widget.style().unpolish(widget)
     widget.style().polish(widget)
+
+
+class CheckBox(QCheckBox):
+    """Native checkbox semantics with an indicator that meets both appearance contrasts."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        rect = QRectF(
+            self.style().subElementRect(QStyle.SubElement.SE_CheckBoxIndicator, option, self)
+        )
+        c = colors_for(self)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(QPen(QColor(c["border"]), 1))
+        painter.setBrush(QColor(c["accent"] if self.isChecked() else c["surface"]))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 3, 3)
+        if self.isChecked():
+            painter.setPen(QPen(QColor(c["accent_ink"]), 2))
+            path = QPainterPath(QPointF(rect.left() + rect.width() * 0.23, rect.center().y()))
+            path.lineTo(rect.left() + rect.width() * 0.43, rect.top() + rect.height() * 0.70)
+            path.lineTo(rect.left() + rect.width() * 0.78, rect.top() + rect.height() * 0.30)
+            painter.drawPath(path)

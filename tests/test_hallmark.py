@@ -558,3 +558,40 @@ def test_monitor_configuration_saves_real_preview_geometry(window, qt_app):
     assert len(scene.lines) == 1
     assert window.panes[source.name].preview.scene == scene
     assert not window.test_errors
+
+
+def test_native_polish_keeps_brand_separate_and_content_expanded(window, qt_app):
+    from PySide6.QtWidgets import QLabel
+
+    from roadlens.desktop_design import DARK, LIGHT, colors_for
+
+    window.resize(1280, 850)
+    qt_app.processEvents()
+    brand = next(w for w in window.findChildren(QLabel, "brand") if w.text() == "ROADLENS")
+    assert brand.geometry().right() < window.nav_buttons[0].geometry().left()
+    assert window.tabs.width() == window.centralWidget().width()
+    for name, expected in (("Light", LIGHT), ("Dark", DARK)):
+        window.appearance.setCurrentText(name)
+        assert colors_for(window.chart) is expected
+        assert colors_for(window.condition_chart) is expected
+
+
+def test_checkbox_indicator_and_active_scene_mode_are_explicit(qt_app):
+    from test_desktop import image
+
+    from roadlens.desktop_design import CheckBox
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    box = CheckBox("Show values")
+    box.show()
+    off = box.grab().toImage()
+    box.setChecked(True)
+    on = box.grab().toImage()
+    assert off != on and box.isChecked()
+    editor = SceneEditor(Scene(), image())
+    assert editor.road_tool.isChecked() and not editor.count_tool.isChecked()
+    editor.count_tool.click()
+    assert editor.count_tool.isChecked() and not editor.road_tool.isChecked()
+    editor.close()
+    box.close()

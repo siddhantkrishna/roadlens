@@ -56,3 +56,48 @@ and validation-log filename. The final count is verified with:
 git rev-list --count 6866f82..HEAD
 git log --reverse --format='%h %s' 6866f82..HEAD
 ```
+
+## Screenshot review and corrections
+
+The final images were captured with the macOS **Cocoa** platform, at native
+Retina resolution, by `scripts/capture_screenshots.py`. They exercise real ONNX
+inference and the public 12-frame recording; no detections, counts or sessions
+were invented. Local review also covered 880-, 1280- and 1920-point windows,
+expanded details, checked controls, and Analysis/Settings/editor dark variants.
+Those extra captures stay in ignored `artifacts/hallmark-review-final/`.
+
+Native screenshot inspection found issues that headless size-hint tests missed:
+header overlap, content shrinking toward its size hint, missing progress text,
+and custom charts inheriting the OS palette despite an explicit light setting.
+Expanding capped layout rows, a fixed brand label, noncollapsing status labels,
+and propagated semantic appearance roles repair these. Regression tests cover
+content width, brand separation, child colors and visible control state.
+
+An independent read-only review named five additional concrete findings. Its
+single confirmation round on corrected native captures marked all five resolved:
+
+| Finding | Correction |
+| --- | --- |
+| Unchecked boxes disappear into the surface | Visible semantic border and checked mark, preserving native checkbox interaction |
+| Drawing mode unclear at entry | Selected congestion tool and explicit drawing instruction |
+| Generic line label loses measurement identity | `upper` is visible on the canvas and in the measurement list |
+| Session timestamp truncates the zone | Readable timestamp explicitly ends in UTC |
+| Completed short session still says Observing | Display says Insufficient data with a measurement explanation |
+
+Geometry names now use contrast plates over footage and Save has primary action
+emphasis. Heatmap colors remain the existing scientific intensity encoding;
+they do not decorate application chrome. Analysis deliberately scrolls vertically
+when its measured charts and records exceed the viewport. No horizontal scrolling
+is required at the supported minimum window size.
+
+| Workspace | Before | After |
+| --- | --- | --- |
+| Monitor | [Baseline](images/monitor-before.png) | [Redesigned](images/monitor.png) |
+| Analysis | [Baseline](images/history-before.png) | [Redesigned](images/history.png) |
+| Configure road | [Baseline](images/scene-editor-before.png) | [Redesigned](images/scene-editor.png) |
+
+Additional captures: [Settings](images/settings.png), [dark Monitor](images/monitor-dark.png).
+Hashes, public footage provenance and licensing for all captures are recorded in
+[public-assets.json](public-assets.json). The reviewer confirmation covered the
+five named findings; it is not a claim of exhaustive interaction, VoiceOver or
+physical-camera validation.

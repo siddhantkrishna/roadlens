@@ -17,7 +17,6 @@ from PySide6.QtGui import (
     QPolygonF,
 )
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -36,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from roadlens.desktop_design import Foldout, colors_for, feedback, heading, label
+from roadlens.desktop_design import CheckBox, Foldout, colors_for, feedback, heading, label
 from roadlens.traffic.scene import CountingLine, Scene, Zone
 
 
@@ -105,16 +104,35 @@ class Preview(QWidget):
             return
         painter.drawImage(self.image_rect(), self.image)
         if self.editable or self.show_geometry:
+
+            def geometry_label(text, position):
+                metrics = painter.fontMetrics()
+                text = metrics.elidedText(
+                    text, Qt.TextElideMode.ElideRight, max(1, int(self.image_rect().width()) - 16)
+                )
+                width, height = metrics.horizontalAdvance(text) + 8, metrics.height() + 6
+                x = max(
+                    self.image_rect().left(), min(position.x(), self.image_rect().right() - width)
+                )
+                y = max(
+                    self.image_rect().top() + 3,
+                    min(position.y() - height - 5, self.image_rect().bottom() - height),
+                )
+                box = QRectF(x, y, width, height)
+                painter.fillRect(box, QColor(c["preview"]))
+                painter.setPen(QColor(c["preview_ink"]))
+                painter.drawText(box.adjusted(4, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter, text)
+
             for zone in self.scene.zones:
                 painter.setPen(QPen(QColor(c["geometry"]), 2))
                 painter.drawPolygon(QPolygonF([self.mapped(p) for p in zone.polygon]))
                 if self.editable:
-                    painter.drawText(self.mapped(zone.polygon[0]) + QPointF(6, -8), zone.name)
+                    geometry_label(zone.name, self.mapped(zone.polygon[0]))
             for line in self.scene.lines:
                 painter.setPen(QPen(QColor(c["line"]), 2))
                 painter.drawLine(self.mapped(line.start), self.mapped(line.end))
                 if self.editable:
-                    painter.drawText(self.mapped(line.start) + QPointF(6, -8), "Counting line")
+                    geometry_label(f"Line: {line.id}", self.mapped(line.start))
             if self.points:
                 painter.setPen(QPen(QColor(c["draft"]), 2))
                 polygon = QPolygonF([self.mapped(p) for p in self.points])
@@ -250,7 +268,7 @@ class SceneEditor(QDialog):
         self.tools.addWidget(self.road_tool)
         self.tools.addStretch()
         layout.addLayout(self.tools)
-        self.detections = QCheckBox("Show detections")
+        self.detections = CheckBox("Show detections")
         self.detections.toggled.connect(self.toggle_detections)
         layout.addWidget(self.detections)
         body = QSplitter(Qt.Orientation.Horizontal)
@@ -338,6 +356,8 @@ class SceneEditor(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        self.buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName("primary")
+        self.buttons.button(QDialogButtonBox.StandardButton.Save).setDefault(True)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
@@ -356,6 +376,10 @@ class SceneEditor(QDialog):
             "Drawing canvas. Press L for a counting line, R for a road area. "
             "Click points, drag vertices, use arrows to nudge, Enter to apply, Escape to clear."
         )
+        self.road_tool.setChecked(True)
+        self.instructions.setText(
+            "Measure congestion is selected. Draw road corners or choose Count vehicles."
+        )
         self.refresh()
 
     def refresh(self):
@@ -363,8 +387,8 @@ class SceneEditor(QDialog):
         self.items.clear()
         for zone in self.scene.zones:
             self.items.addItem(zone.name)
-        for index, line in enumerate(self.scene.lines, 1):
-            self.items.addItem(f"Counting line {index}")
+        for line in self.scene.lines:
+            self.items.addItem(f"Counting line ({line.id})")
             self.items.item(self.items.count() - 1).setToolTip(
                 f"{line.id}: {line.forward} / {line.reverse}"
             )
@@ -373,6 +397,8 @@ class SceneEditor(QDialog):
         self.canvas.update()
 
     def kind_changed(self, kind):
+        self.count_tool.setChecked(kind == "line")
+        self.road_tool.setChecked(kind == "road")
         self.canvas.polygon = kind != "line"
         self.canvas.points.clear()
         self.canvas.drag = None
@@ -718,7 +744,7 @@ class HeatmapLegend(QWidget):
         pixels, _ = heatmap_pixels([list(range(256))])
         self.ramp = qimage(pixels)
         self.scale_max = None
-        self.setMinimumHeight(54)
+        self.setMinimumHeight(80)
         self.setAccessibleName("Observed vehicle dwell heatmap scale")
 
     def set_scale(self, maximum):
@@ -747,4 +773,8 @@ class HeatmapLegend(QWidget):
             Qt.AlignmentFlag.AlignRight,
             f"{self.scale_max:.3g} vehicle-seconds / cell",
         )
-        painter.drawText(0, 51, "Relative to this session. No background image is stored.")
+        painter.drawText(
+            self.rect().adjusted(0, 38, 0, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
+            "Relative to this session. No background image is stored.",
+        )

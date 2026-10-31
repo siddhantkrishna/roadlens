@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QButtonGroup,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
@@ -58,7 +57,15 @@ from roadlens.desktop_data import (
     qimage,
     read_history,
 )
-from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, font, heading, label
+from roadlens.desktop_design import (
+    CheckBox,
+    FocusOutline,
+    Foldout,
+    apply_appearance,
+    font,
+    heading,
+    label,
+)
 from roadlens.desktop_widgets import (
     ClassificationChart,
     FlowChart,
@@ -195,6 +202,7 @@ class SourcePane(QFrame):
         state_row.addWidget(self.status, 1)
         self.progress = label("", "muted")
         self.progress.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.progress.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         state_row.addWidget(self.progress)
         layout.addLayout(state_row)
 
@@ -222,7 +230,7 @@ class DesktopWindow(QMainWindow):
         self.last_diagnostic = 0.0
         self.settings_changed = set()
         self.draw_geometry = True
-        self.setWindowTitle("ROADLENS • Local traffic intelligence")
+        self.setWindowTitle("ROADLENS")
         self.resize(1280, 850)
         self.setMinimumSize(880, 650)
         apply_appearance(self)
@@ -250,6 +258,7 @@ class DesktopWindow(QMainWindow):
         for source in self.sources:
             if source.kind == "video":
                 self.load_video_preview(source)
+        self.source_selector.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def build_ui(self):
         content = QWidget()
@@ -263,6 +272,7 @@ class DesktopWindow(QMainWindow):
         navigation.setSpacing(8)
         brand = label("ROADLENS", "brand")
         brand.setMinimumWidth(132)
+        brand.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         navigation.addWidget(brand)
         self.tabs = QStackedWidget()
         self.nav_buttons = []
@@ -279,11 +289,16 @@ class DesktopWindow(QMainWindow):
         navigation.addStretch()
         self.global_status = label("Ready", "muted")
         self.global_status.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.global_status.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         navigation.addWidget(self.global_status)
         chrome.setMaximumWidth(1640)
         self.tabs.setMaximumWidth(1640)
-        outer.addWidget(chrome, 0, Qt.AlignmentFlag.AlignHCenter)
-        outer.addWidget(self.tabs, 1, Qt.AlignmentFlag.AlignHCenter)
+        chrome_row = QHBoxLayout()
+        chrome_row.addWidget(chrome, 1)
+        content_row = QHBoxLayout()
+        content_row.addWidget(self.tabs, 1)
+        outer.addLayout(chrome_row)
+        outer.addLayout(content_row, 1)
         self.build_monitor()
         self.build_history()
         self.build_settings()
@@ -399,7 +414,7 @@ class DesktopWindow(QMainWindow):
         self.stop_button = self.button("Stop", self.stop_selected, controls)
         self.stop_button.setProperty("iconName", "stop")
         controls.addStretch()
-        self.show_all = QCheckBox("All sources")
+        self.show_all = CheckBox("All sources")
         self.show_all.toggled.connect(self.selection_changed)
         controls.addWidget(self.show_all)
         self.edit_button = self.button("Configure road", self.edit_scene, controls)
@@ -511,6 +526,7 @@ class DesktopWindow(QMainWindow):
         layout.addLayout(toolbar)
         export_feedback = QHBoxLayout()
         self.export_status = label("", "muted")
+        self.export_status.hide()
         export_feedback.addWidget(self.export_status, 1)
         self.export_folder_button = self.button(
             "Show export folder", self.show_export_folder, export_feedback
@@ -549,10 +565,12 @@ class DesktopWindow(QMainWindow):
         charts = QGridLayout()
         self.analysis_charts = charts
         charts.setSpacing(16)
+        charts.setColumnStretch(0, 1)
+        charts.setColumnStretch(1, 1)
         self.chart = FlowChart()
         self.heatmap = Preview()
         self.heatmap.empty_message = "No movement observations saved yet"
-        self.heatmap_caption = label("Vehicle movement · observed dwell", "muted")
+        self.heatmap_caption = label("Vehicle movement", "muted")
         heatmap_box = QVBoxLayout()
         heatmap_box.addWidget(self.heatmap_caption)
         heatmap_box.addWidget(self.heatmap, 1)
@@ -621,7 +639,7 @@ class DesktopWindow(QMainWindow):
         self.history_options = Foldout("Sessions and comparison")
         filter_row = QHBoxLayout()
         self.history_camera = QLineEdit()
-        self.history_camera.setPlaceholderText("Camera name or ID · leave empty for all")
+        self.history_camera.setPlaceholderText("Camera name or ID (optional)")
         self.history_camera.setAccessibleName("Filter sessions by camera")
         self.history_camera.returnPressed.connect(self.reset_history)
         filter_row.addWidget(self.history_camera, 1)
@@ -1188,7 +1206,7 @@ class DesktopWindow(QMainWindow):
             "ready" if snapshot.baseline_ready else f"warming ({snapshot.baseline_windows} windows)"
         )
         self.live_status.setText(
-            f"Source time {snapshot.source_time:.2f}s • {speed} • "
+            f"Source time: {snapshot.source_time:.2f} s. {speed}. "
             f"Anomaly baseline {baseline}. Queue = largest road-area queue."
         )
 
@@ -1242,6 +1260,15 @@ class DesktopWindow(QMainWindow):
             elif pipeline.capture.last_error and state not in ("completed", "stopped"):
                 status += f": {pipeline.capture.last_error}"
             self.panes[source.name].status.setText(status)
+            if (
+                source == self.selected_source()
+                and state in ("completed", "stopped")
+                and self.metrics["Congestion"].text() == "Observing"
+            ):
+                self.metrics["Congestion"].setText("Insufficient data")
+                self.metrics["Congestion"].setToolTip(
+                    "The session ended before road conditions could be established."
+                )
         source = self.selected_source()
         running = bool(source and self.active(source.name))
         self.start_button.setEnabled(bool(source) and not running and not self.closing)
@@ -1453,7 +1480,7 @@ class DesktopWindow(QMainWindow):
         self.history_selector.clear()
         for row in self.history_rows:
             self.history_selector.addItem(
-                f"{row['name']} · {row['started_at'][:19]} · {row['status']}", row["id"]
+                f"{row['name']} ({row['started_at'][:19].replace('T', ' ')} UTC)", row["id"]
             )
         self.history_selector.setCurrentIndex(self.history_selector.findData(self.history_session))
         self.history_selector.blockSignals(False)
@@ -1494,7 +1521,7 @@ class DesktopWindow(QMainWindow):
         self.flow_series.clear()
         for key in series:
             self.flow_series.addItem(
-                " · ".join(part.replace("_", " ") for part in key.split("/")), key
+                " / ".join(part.replace("_", " ") for part in key.split("/")), key
             )
         self.flow_series.setCurrentIndex(self.flow_series.findData(selected_series))
         self.flow_series.blockSignals(False)
@@ -1527,7 +1554,7 @@ class DesktopWindow(QMainWindow):
             self.analysis_summary.setText(
                 f"{total} crossing event(s) across {len(scene['lines'])} counting line(s)"
                 if scene["lines"]
-                else "Detection session · no counting lines configured"
+                else "Detection session. No counting lines configured."
             )
             latest = data["windows"][-1] if data["windows"] else {}
             baseline = latest.get("baseline_ready")
@@ -1615,6 +1642,7 @@ class DesktopWindow(QMainWindow):
         paths = result if isinstance(result, list) else [result]
         self.last_export_dir = Path(paths[0]).parent
         self.export_status.setText(f"Export complete: {len(paths)} file(s) saved.")
+        self.export_status.show()
         self.export_status.setToolTip("\n".join(str(path) for path in paths))
         self.export_folder_button.show()
         self.statusBar().showMessage(
@@ -1677,7 +1705,7 @@ class DesktopWindow(QMainWindow):
             self.history_session = None
             self.history_request += 1
             self.refresh_history()
-            self.statusBar().showMessage(f"Settings saved • database: {database}")
+            self.statusBar().showMessage(f"Settings saved. Database: {database}")
         except (OSError, ValueError, TypeError) as error:
             self.show_error(error)
 
@@ -1797,6 +1825,13 @@ class DesktopWindow(QMainWindow):
             event.accept()
 
     def change_appearance(self, appearance, *, persist=True):
+        hints = QApplication.styleHints()
+        if appearance == "System":
+            hints.unsetColorScheme()
+        else:
+            hints.setColorScheme(
+                Qt.ColorScheme.Dark if appearance == "Dark" else Qt.ColorScheme.Light
+            )
         dark = appearance == "Dark" or (
             appearance == "System"
             and QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark

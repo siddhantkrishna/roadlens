@@ -37,6 +37,7 @@ dist/
 *secret*.json
 roadlens.toml
 desktop.json
+appearance.json
 .vscode/
 .idea/
 .DS_Store
@@ -88,6 +89,11 @@ logs/
 !docs/images/monitor.png
 !docs/images/history.png
 !docs/images/scene-editor.png
+!docs/images/settings.png
+!docs/images/monitor-dark.png
+!docs/images/monitor-before.png
+!docs/images/history-before.png
+!docs/images/scene-editor-before.png
 
 # Local design audit captures and skill bookkeeping
 .hallmark/

@@ -190,6 +190,7 @@ class SourcePane(QFrame):
         self.raw_image = QImage()
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         state_row = QHBoxLayout()
         state_row.addWidget(self.status, 1)
         self.progress = label("", "muted")
@@ -223,7 +224,7 @@ class DesktopWindow(QMainWindow):
         self.draw_geometry = True
         self.setWindowTitle("ROADLENS • Local traffic intelligence")
         self.resize(1280, 850)
-        self.setMinimumSize(960, 680)
+        self.setMinimumSize(880, 650)
         apply_appearance(self)
         self.build_ui()
         self.focus_outline = FocusOutline(self)
@@ -279,8 +280,10 @@ class DesktopWindow(QMainWindow):
         self.global_status = label("Ready", "muted")
         self.global_status.setAlignment(Qt.AlignmentFlag.AlignRight)
         navigation.addWidget(self.global_status)
-        outer.addWidget(chrome)
-        outer.addWidget(self.tabs, 1)
+        chrome.setMaximumWidth(1640)
+        self.tabs.setMaximumWidth(1640)
+        outer.addWidget(chrome, 0, Qt.AlignmentFlag.AlignHCenter)
+        outer.addWidget(self.tabs, 1, Qt.AlignmentFlag.AlignHCenter)
         self.build_monitor()
         self.build_history()
         self.build_settings()
@@ -566,9 +569,17 @@ class DesktopWindow(QMainWindow):
         condition_controls = QHBoxLayout()
         self.condition_area = QComboBox()
         self.condition_area.setAccessibleName("Road area for condition measurements")
+        self.condition_area.setMinimumContentsLength(7)
+        self.condition_area.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.condition_area.currentIndexChanged.connect(self.change_condition_series)
         self.condition_metric = QComboBox()
         self.condition_metric.setAccessibleName("Road condition measurement")
+        self.condition_metric.setMinimumContentsLength(9)
+        self.condition_metric.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         for title, key in (
             ("Occupancy", "occupancy"),
             ("Congested time", "congestion"),

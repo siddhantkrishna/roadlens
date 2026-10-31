@@ -443,3 +443,15 @@ def test_workspace_focus_and_native_preferences_shortcuts(window, qt_app):
     assert window.tabs.currentIndex() == 1 and window.nav_buttons[1].isChecked()
     window.nav_buttons[1].click()
     assert window.nav_buttons[1].isChecked()
+
+
+@pytest.mark.parametrize("size", [(880, 650), (1280, 800), (1920, 1080)])
+def test_native_workspaces_resize_without_horizontal_clipping(window, qt_app, size):
+    window.resize(*size)
+    for index in range(3):
+        window.tabs.setCurrentIndex(index)
+        qt_app.processEvents()
+        assert window.minimumSizeHint().width() <= window.width()
+        assert window.minimumSizeHint().height() <= window.height()
+        assert window.tabs.width() <= 1640
+    assert window.width() == size[0]

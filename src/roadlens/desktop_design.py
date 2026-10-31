@@ -156,6 +156,7 @@ def apply_appearance(widget, dark=False):
             border-color: {c["rule"]};
             }}
         QPushButton#navigation {{ border: 0;
+            border-bottom: 2px solid transparent;
             border-radius: 0;
             background: transparent;
             padding: 10px 18px;

@@ -354,3 +354,51 @@ def test_event_records_show_real_units_and_handle_unreadable_details():
     assert "2.5 s" in event_row(record)[4]
     record["details_json"] = "invalid"
     assert "could not be read" in event_row(record)[4]
+
+
+def test_session_comparison_uses_only_matching_observed_sessions(window, qt_app):
+    from dataclasses import asdict
+    from pathlib import Path
+
+    from test_desktop import spin
+
+    from roadlens.desktop_data import read_history
+    from roadlens.traffic.models import AnalysisUpdate, TrafficEvent, TrafficSnapshot
+    from roadlens.traffic.scene import CountingLine, Scene
+    from roadlens.traffic.store import TrafficStore
+
+    spin(qt_app, lambda: not window.jobs)
+    path = Path(window.config.analytics.database)
+    scene = Scene(lines=(CountingLine("one", (0, 0.5), (1, 0.5)),))
+    snapshot = TrafficSnapshot(1, (), True, (), (), "no calibration", 0, False)
+    with TrafficStore(path) as store:
+        sessions = []
+        for key, fingerprint in (
+            ("same", "same"),
+            ("same", "same"),
+            ("other", "same"),
+            ("same", "different"),
+        ):
+            session = store.start_session(
+                "camera", "Camera", {}, asdict(scene), key, "video_seconds", fingerprint
+            )
+            store.write(
+                session,
+                AnalysisUpdate(
+                    snapshot, (TrafficEvent("one", "crossing", 1, "one", "car", "forward"),)
+                ),
+            )
+            store.finish_session(session, "completed")
+            sessions.append(session)
+    window.tabs.setCurrentIndex(1)
+    window.history_request += 1
+    window.history_loaded((window.history_request, read_history(path, session=sessions[0])))
+    assert window.compare_selector.count() == 2
+    window.compare_selector.setCurrentIndex(1)
+    spin(qt_app, lambda: not window.jobs)
+    assert "1 in this session" in window.comparison_status.text()
+    assert "1 in the comparison" in window.comparison_status.text()
+    window.history_camera.setText("absent")
+    window.reset_history()
+    spin(qt_app, lambda: not window.jobs)
+    assert window.analysis_empty.isVisible() and not window.analysis_scroll.isVisible()

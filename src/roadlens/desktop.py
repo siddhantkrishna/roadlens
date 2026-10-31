@@ -51,7 +51,14 @@ from PySide6.QtWidgets import (
 from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
-from roadlens.desktop_data import event_row, export_pdf, heatmap_image, qimage, read_history
+from roadlens.desktop_data import (
+    comparable_sessions,
+    event_row,
+    export_pdf,
+    heatmap_image,
+    qimage,
+    read_history,
+)
 from roadlens.desktop_design import FocusOutline, Foldout, apply_appearance, font, heading, label
 from roadlens.desktop_widgets import (
     ClassificationChart,
@@ -488,6 +495,14 @@ class DesktopWindow(QMainWindow):
         toolbar.addWidget(self.export_format)
         self.export_button = self.button("Export…", self.export_session, toolbar, primary=True)
         layout.addLayout(toolbar)
+        export_feedback = QHBoxLayout()
+        self.export_status = label("", "muted")
+        export_feedback.addWidget(self.export_status, 1)
+        self.export_folder_button = self.button(
+            "Show export folder", self.show_export_folder, export_feedback
+        )
+        self.export_folder_button.hide()
+        layout.addLayout(export_feedback)
         self.history_status = label(
             "No saved sessions yet. Start a source in Monitor to create one.", "muted"
         )
@@ -594,6 +609,12 @@ class DesktopWindow(QMainWindow):
         self.sessions.setMaximumHeight(170)
         self.sessions.itemSelectionChanged.connect(self.history_selected)
         self.history_options.body_layout.addWidget(self.sessions)
+        self.compare_selector = QComboBox()
+        self.compare_selector.setAccessibleName("Compare with a compatible recorded session")
+        self.compare_selector.currentIndexChanged.connect(self.compare_session)
+        self.history_options.body_layout.addWidget(self.compare_selector)
+        self.comparison_status = label("", "muted")
+        self.history_options.body_layout.addWidget(self.comparison_status)
         analysis.addWidget(self.history_options)
         analysis.addWidget(
             label(
@@ -1240,6 +1261,9 @@ class DesktopWindow(QMainWindow):
         index = self.sessions.currentRow()
         if 0 <= index < len(self.history_rows):
             self.history_session = self.history_rows[index]["id"]
+            self.report_data = None
+            self.history_status.setText("Loading the selected session…")
+            self.export_button.setEnabled(False)
             self.history_request += 1
             self.refresh_history()
 
@@ -1288,6 +1312,19 @@ class DesktopWindow(QMainWindow):
             )
         self.history_selector.setCurrentIndex(self.history_selector.findData(self.history_session))
         self.history_selector.blockSignals(False)
+        comparison = self.compare_selector.currentData()
+        self.compare_selector.blockSignals(True)
+        self.compare_selector.clear()
+        self.compare_selector.addItem("Choose a comparison session", None)
+        for row in self.history_rows:
+            if comparable_sessions(selected, row):
+                self.compare_selector.addItem(
+                    f"{row['name']} ({row['started_at'][:19]})", row["id"]
+                )
+        self.compare_selector.setCurrentIndex(max(0, self.compare_selector.findData(comparison)))
+        self.compare_selector.setEnabled(self.compare_selector.count() > 1)
+        self.compare_selector.blockSignals(False)
+        self.compare_session()
         self.analysis_empty.setText(
             "No sessions recorded\n\n"
             "Your sessions, flow charts and movement heatmaps will appear here after analysis."
@@ -1375,7 +1412,7 @@ class DesktopWindow(QMainWindow):
             self.statusBar().showMessage("An export is already running.")
             return
         if not self.history_session or not self.report_data:
-            self.show_error(ValueError("Select a saved session in History and analysis first"))
+            self.show_error(ValueError("Select a saved session in Analysis first"))
             return
         database = Path(self.config.analytics.database)
         session = self.history_session
@@ -1430,9 +1467,14 @@ class DesktopWindow(QMainWindow):
             self.launch_job("export", export, self.export_finished)
 
     def export_finished(self, result):
-        paths = ", ".join(str(p) for p in result) if isinstance(result, list) else str(result)
-        self.statusBar().showMessage(f"Exported: {paths}")
-        QMessageBox.information(self, "Export complete", paths)
+        paths = result if isinstance(result, list) else [result]
+        self.last_export_dir = Path(paths[0]).parent
+        self.export_status.setText(f"Export complete: {len(paths)} file(s) saved.")
+        self.export_status.setToolTip("\n".join(str(path) for path in paths))
+        self.export_folder_button.show()
+        self.statusBar().showMessage(
+            "Export complete. Choose Show export folder to view the files."
+        )
 
     def populate_settings(self):
         self.model_edit.setText(self.config.model)
@@ -1794,6 +1836,44 @@ class DesktopWindow(QMainWindow):
         self.events.setVisible(bool(rows))
         self.events_hint.setVisible(not rows)
         self.events_hint.setText("No matching events in the latest 200 saved records.")
+
+    def compare_session(self, _=None):
+        session = self.compare_selector.currentData()
+        current = self.history_session
+        self.comparison_status.setText(
+            "Compare finalized sessions with matching camera, scene and settings."
+        )
+        if not session or not current:
+            return
+        database = Path(self.config.analytics.database)
+
+        def loaded(data):
+            if self.history_session != current or self.compare_selector.currentData() != session:
+                return
+            previous, selected = data["session"], (self.report_data or {}).get("session")
+            if not comparable_sessions(previous, selected):
+                self.comparison_status.setText(
+                    "These sessions do not have matching analysis settings."
+                )
+                return
+            if not json.loads(selected["scene_json"])["lines"]:
+                self.comparison_status.setText(
+                    "Counting was unavailable in both sessions: no counting lines were configured."
+                )
+                return
+            before = sum(row["count"] for row in data["counts"])
+            now = sum(row["count"] for row in self.report_data["counts"])
+            self.comparison_status.setText(
+                f"Crossing events: {now} in this session, {before} in the comparison "
+                f"({now - before:+d}). Session lengths may differ; use the flow chart for rates."
+            )
+
+        self.launch_job("comparison", lambda: read_history(database, session=session), loaded)
+
+    def show_export_folder(self):
+        from PySide6.QtCore import QUrl
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_export_dir)))
 
 
 def main(argv=None):

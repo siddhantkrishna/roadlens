@@ -305,3 +305,17 @@ def event_row(event):
         event["category"].title() if event["category"] else None,
         description,
     )
+
+
+def comparable_sessions(first, second):
+    return bool(
+        first
+        and second
+        and first["id"] != second["id"]
+        and first["status"] != "running"
+        and second["status"] != "running"
+        and all(
+            first[key] == second[key]
+            for key in ("camera_id", "source_fingerprint", "analysis_key", "clock_kind")
+        )
+    )

@@ -82,7 +82,8 @@ def test_video_onboarding_reads_a_real_frame_before_start(tmp_path):
     window.close()
 
 
-def test_recorded_pause_resume_and_stop_keep_frame_integrity():
+@pytest.mark.model
+def test_recorded_pause_resume_and_stop_keep_frame_integrity(model_path, vehicle_video):
     import time
     from pathlib import Path
 
@@ -91,7 +92,7 @@ def test_recorded_pause_resume_and_stop_keep_frame_integrity():
 
     root = Path(__file__).resolve().parents[1]
     source = SourceConfig("Video", "video", str(root / "assets/traffic.avi"), False)
-    config = Config(model=str(root / "models/yolov8n.onnx"))
+    config = Config(model=model_path)
     pipeline = Pipeline(source, config)
     pipeline.set_paused(True)
     pipeline.start()
@@ -148,6 +149,7 @@ def test_geometry_visibility_is_independent_of_real_analysis(window):
     assert not window.pipelines
 
 
+@pytest.mark.model
 def test_monitor_flow_uses_selected_line_without_combining_lines(window, qt_app, model_path):
     from dataclasses import replace
     from pathlib import Path
@@ -423,6 +425,8 @@ def test_processing_budget_uses_saved_values_and_reports_measured_memory(window)
     window.populate_settings()
     assert "3 CPU threads" in window.performance_summary.text()
     assert "5.5 analyses/s" in window.performance_summary.text()
+    window.tabs.setCurrentIndex(2)
+    window.diagnostic_section.toggle.setChecked(True)
     window.diagnostics.clearFocus()
     window.update_diagnostics()
     assert "Measured peak process memory" in window.diagnostics.toPlainText()
@@ -455,3 +459,102 @@ def test_native_workspaces_resize_without_horizontal_clipping(window, qt_app, si
         assert window.minimumSizeHint().height() <= window.height()
         assert window.tabs.width() <= 1640
     assert window.width() == size[0]
+
+
+def test_scene_keyboard_deletion_and_nudging_are_reversible(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    editor = SceneEditor(Scene(), image())
+    original = [(0.1, 0.1), (0.8, 0.1), (0.8, 0.8)]
+    editor.canvas.points = list(original)
+    editor.canvas.drag = 2
+    QTest.keyClick(editor.canvas, Qt.Key.Key_Backspace)
+    assert len(editor.canvas.points) == 2
+    editor.undo()
+    assert editor.canvas.points == original
+    editor.canvas.drag = 0
+    QTest.keyClick(editor.canvas, Qt.Key.Key_Right)
+    editor.undo()
+    assert editor.canvas.points == original
+    editor.close()
+
+
+def test_two_times_display_scaling_keeps_image_coordinates_and_pixel_density():
+    import os
+    import subprocess
+    import sys
+
+    script = """
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QImage, QColor
+from PySide6.QtWidgets import QApplication
+from roadlens.desktop_widgets import Preview
+app = QApplication([])
+preview = Preview()
+preview.resize(800, 600)
+image = QImage(640, 360, QImage.Format.Format_RGB32)
+image.fill(QColor(40, 50, 40))
+preview.set_image(image)
+preview.show()
+app.processEvents()
+point = (0.25, 0.75)
+assert preview.normalized(preview.mapped(point)) == point
+pixmap = preview.grab()
+assert pixmap.devicePixelRatio() == 2
+assert pixmap.width() == 2 * preview.width()
+preview.close()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_SCALE_FACTOR": "2"},
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_monitor_configuration_saves_real_preview_geometry(window, qt_app):
+    from pathlib import Path
+
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication, QDialogButtonBox
+    from test_desktop import spin
+
+    from roadlens.config import SourceConfig
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    source = SourceConfig(
+        "Road recording",
+        "video",
+        str(Path(__file__).resolve().parents[1] / "assets/traffic.avi"),
+        False,
+    )
+    window.add_source(source)
+    spin(qt_app, lambda: not window.jobs)
+
+    def draw():
+        editor = QApplication.activeModalWidget()
+        assert isinstance(editor, SceneEditor)
+        assert not editor.clean_image.isNull()
+        editor.count_tool.click()
+        for point in ((0.1, 0.5), (0.9, 0.5)):
+            QTest.mouseClick(
+                editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped(point).toPoint()
+            )
+        editor.buttons.button(QDialogButtonBox.StandardButton.Save).click()
+
+    QTimer.singleShot(30, draw)
+    window.edit_scene()
+    configured = window.selected_source()
+    scene = Scene.load(Path(configured.scene))
+    assert len(scene.lines) == 1
+    assert window.panes[source.name].preview.scene == scene
+    assert not window.test_errors

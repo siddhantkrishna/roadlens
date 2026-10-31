@@ -193,10 +193,12 @@ class Preview(QWidget):
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.finished.emit()
         elif key == Qt.Key.Key_Escape:
+            self.point_history.append(list(self.points))
             self.points.clear()
             self.drag = None
         elif key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
             if self.points:
+                self.point_history.append(list(self.points))
                 self.points.pop(self.drag if self.drag is not None else -1)
             self.drag = None
         elif self.drag is not None and key in (
@@ -205,6 +207,7 @@ class Preview(QWidget):
             Qt.Key.Key_Up,
             Qt.Key.Key_Down,
         ):
+            self.point_history.append(list(self.points))
             x, y = self.points[self.drag]
             x += 0.001 * ((key == Qt.Key.Key_Right) - (key == Qt.Key.Key_Left))
             y += 0.001 * ((key == Qt.Key.Key_Down) - (key == Qt.Key.Key_Up))

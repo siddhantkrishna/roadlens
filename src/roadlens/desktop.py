@@ -1293,7 +1293,11 @@ class DesktopWindow(QMainWindow):
 
     def update_diagnostics(self):
         self.update_camera_summary()
-        if self.diagnostics.hasFocus() or self.diagnostics.textCursor().hasSelection():
+        if (
+            not self.diagnostics.isVisible()
+            or self.diagnostics.hasFocus()
+            or self.diagnostics.textCursor().hasSelection()
+        ):
             return
         import resource
 

@@ -245,3 +245,77 @@ def export_pdf(database: Path, session: str, output: Path) -> Path:
         return output
     finally:
         temporary.unlink(missing_ok=True)
+
+
+EVENT_TITLES = {
+    "crossing": "Vehicle crossed",
+    "queue_started": "Queue formed",
+    "queue_cleared": "Queue cleared",
+    "stalled": "Vehicle stopped",
+    "stalled_cleared": "Vehicle moving again",
+    "anomaly": "Unusual traffic",
+    "observation_gap": "Observation gap",
+}
+
+
+def event_row(event):
+    """Present saved event facts in plain language without changing exported records."""
+    kind = event["kind"]
+    try:
+        details = json.loads(event["details_json"])
+        if not isinstance(details, dict):
+            raise ValueError("Event details must be an object")
+    except (ValueError, TypeError):
+        details = {}
+        description = "Saved details could not be read"
+    else:
+        if kind == "crossing":
+            description = (event["direction"] or "Direction unavailable").replace("_", " ")
+        elif kind == "queue_started":
+            description = f"{details.get('vehicles', 'Unknown')} vehicles in the queue"
+        elif kind == "stalled":
+            duration = details.get("stationary_seconds")
+            description = (
+                f"Stationary for {duration:.1f} s"
+                if isinstance(duration, (int, float))
+                else "Stationary vehicle"
+            )
+        elif kind == "observation_gap":
+            duration = details.get("seconds")
+            description = (
+                f"No observations for {duration:.1f} s. Tracking restarted."
+                if isinstance(duration, (int, float))
+                else "Tracking restarted after missing observations"
+            )
+        elif kind == "anomaly":
+            metric = str(details.get("metric", "Traffic measurement")).replace("_", " ")
+            value, median = (
+                details.get("value", "unavailable"),
+                details.get("median", "unavailable"),
+            )
+            description = f"{metric}: {value}; prior median {median}"
+        else:
+            description = "; ".join(
+                f"{key.replace('_', ' ')}: {value}" for key, value in details.items()
+            )
+    return (
+        f"{event['source_time']:.2f}",
+        EVENT_TITLES.get(kind, kind.replace("_", " ").title()),
+        event["object_id"],
+        event["category"].title() if event["category"] else None,
+        description,
+    )
+
+
+def comparable_sessions(first, second):
+    return bool(
+        first
+        and second
+        and first["id"] != second["id"]
+        and first["status"] != "running"
+        and second["status"] != "running"
+        and all(
+            first[key] == second[key]
+            for key in ("camera_id", "source_fingerprint", "analysis_key", "clock_kind")
+        )
+    )

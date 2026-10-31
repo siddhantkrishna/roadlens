@@ -11,6 +11,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen
 
 from roadlens.cameras import build_bridge
+from roadlens.desktop_design import LIGHT
 
 
 def main():
@@ -30,16 +31,16 @@ def main():
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.scale(size * scale / 1024, size * scale / 1024)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#102d3b"))
+            painter.setBrush(QColor(LIGHT["text"]))
             painter.drawRoundedRect(QRectF(20, 20, 984, 984), 220, 220)
-            painter.setBrush(QColor("#1b4b5b"))
+            painter.setBrush(QColor(LIGHT["accent"]))
             painter.drawEllipse(QRectF(178, 178, 668, 668))
-            painter.setPen(QPen(QColor("#68e3c4"), 42))
+            painter.setPen(QPen(QColor(LIGHT["geometry"]), 42))
             painter.drawEllipse(QRectF(242, 242, 540, 540))
-            painter.setPen(QPen(QColor("#ffffff"), 35))
+            painter.setPen(QPen(QColor(LIGHT["accent_ink"]), 35))
             painter.drawLine(QPointF(450, 340), QPointF(350, 690))
             painter.drawLine(QPointF(574, 340), QPointF(674, 690))
-            painter.setPen(QPen(QColor("#ffca77"), 20, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(LIGHT["line"]), 20, Qt.PenStyle.DashLine))
             painter.drawLine(QPointF(512, 350), QPointF(512, 690))
             painter.end()
             suffix = "@2x" if scale == 2 else ""

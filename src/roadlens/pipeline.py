@@ -12,7 +12,7 @@ import numpy as np
 from roadlens.capture import CaptureWorker, FrameSlot
 from roadlens.config import Config, SourceConfig
 from roadlens.detection import VEHICLES, VehicleDetector
-from roadlens.drawing import fit_text
+from roadlens.drawing import OVERLAY, fit_text
 from roadlens.tracking import Track, VehicleTracker
 from roadlens.traffic.models import TrafficSnapshot
 from roadlens.traffic.service import TrafficService
@@ -29,31 +29,50 @@ class Result:
     inference_ms: float
     latency_ms: float
     analysis: TrafficSnapshot | None = None
+    raw_image: np.ndarray | None = None
 
 
 def annotate(
-    image: np.ndarray, tracks: list[Track], source: str, epoch: int, diagnostic: str
+    image: np.ndarray,
+    tracks: list[Track],
+    source: str,
+    epoch: int,
+    diagnostic: str,
+    *,
+    compact=False,
 ) -> np.ndarray:
     canvas = image.copy()
     for track in tracks:
         x1, y1, x2, y2 = map(round, track.bbox)
-        color = ((track.id * 67) % 180 + 75, (track.id * 37) % 180 + 75, 70)
+        color = (
+            OVERLAY["box"]
+            if compact
+            else ((track.id * 67) % 180 + 75, (track.id * 37) % 180 + 75, 70)
+        )
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
         label = fit_text(
-            f"{VEHICLES[track.class_id].title()} #{track.id} | {track.confidence:.2f}",
+            (
+                f"{VEHICLES[track.class_id].title()} {track.id}"
+                if compact
+                else f"{VEHICLES[track.class_id].title()} #{track.id} | {track.confidence:.2f}"
+            ),
             canvas.shape[1] - 8,
         )
         (label_width, label_height), baseline = cv2.getTextSize(
             label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
         )
         label_x = max(0, min(x1, canvas.shape[1] - label_width - 4))
-        label_y = y1 - 7 if y1 - label_height - 12 >= 46 else y2 + label_height + 8
-        label_y = min(canvas.shape[0] - baseline - 3, max(62, label_y))
+        label_y = (
+            y1 - 7 if y1 - label_height - 12 >= (0 if compact else 46) else y2 + label_height + 8
+        )
+        label_y = min(
+            canvas.shape[0] - baseline - 3, max(label_height + 5 if compact else 62, label_y)
+        )
         cv2.rectangle(
             canvas,
             (label_x, label_y - label_height - 4),
             (label_x + label_width + 4, label_y + baseline + 2),
-            (20, 20, 20),
+            OVERLAY["plate"] if compact else (20, 20, 20),
             -1,
         )
         cv2.putText(
@@ -62,7 +81,7 @@ def annotate(
             (label_x + 2, label_y),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
-            (255, 255, 255),
+            OVERLAY["ink"] if compact else (255, 255, 255),
             1,
             cv2.LINE_AA,
         )
@@ -75,6 +94,8 @@ def annotate(
                 round(center[1] + track.direction[1] * 45),
             )
             cv2.arrowedLine(canvas, center, end, color, 2, tipLength=0.3)
+    if compact:
+        return canvas
     cv2.rectangle(canvas, (0, 0), (canvas.shape[1], 46), (20, 20, 20), -1)
     cv2.putText(
         canvas,
@@ -108,6 +129,9 @@ class Pipeline(threading.Thread):
         self.stop_event = self.capture.stop_event
         self.done = threading.Event()
         self.error: Exception | None = None
+        self.paused = threading.Event()
+        self.resume_generation = 0
+        self.desktop_preview = False
         self.processed = 0
         self.inference_fps = 0.0
         self.traffic: TrafficService | None = None
@@ -152,11 +176,19 @@ class Pipeline(threading.Thread):
         )
         tracker = VehicleTracker(self.config)
         generation = None
+        resume_generation = 0
         frame_shape = None
         last_report = None
         count = 0
         self.capture.start()
         while not self.stop_event.is_set():
+            while self.paused.is_set() and not self.stop_event.wait(0.05):
+                pass
+            if self.stop_event.is_set():
+                return
+            if resume_generation != self.resume_generation:
+                tracker.reset()
+                resume_generation = self.resume_generation
             frame = self.capture.frames.get()
             if frame is None:
                 if self.capture.done.is_set():
@@ -244,8 +276,15 @@ class Pipeline(threading.Thread):
                 )
                 + f"drop {self.capture.frames.dropped}"
             )
-            image = annotate(frame.image, tracks, self.source.name, tracker.epoch, diagnostic)
-            if analysis is not None:
+            image = annotate(
+                frame.image,
+                tracks,
+                self.source.name,
+                tracker.epoch,
+                diagnostic,
+                compact=self.desktop_preview,
+            )
+            if analysis is not None and not self.desktop_preview:
                 image = self.traffic.overlay(image, analysis)
             self.results.put(
                 Result(
@@ -256,6 +295,7 @@ class Pipeline(threading.Thread):
                     inference_ms,
                     latency_ms,
                     analysis,
+                    frame.image if self.desktop_preview else None,
                 ),
                 self.stop_event,
             )
@@ -269,3 +309,12 @@ class Pipeline(threading.Thread):
 
     def stop(self):
         self.capture.stop()
+
+    def set_paused(self, paused):
+        if paused:
+            self.paused.set()
+        else:
+            if self.paused.is_set() and (self.source.kind != "video" or self.source.realtime):
+                self.resume_generation += 1
+                self.capture.frames.clear()
+            self.paused.clear()

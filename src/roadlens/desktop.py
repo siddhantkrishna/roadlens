@@ -757,6 +757,9 @@ class DesktopWindow(QMainWindow):
         sections["Camera"][0].body_layout.addWidget(self.camera_summary)
         self.button("Manage cameras…", self.manage_sources, sections["Camera"][0].body_layout)
         self.button("Camera permission help", self.camera_help, sections["Camera"][0].body_layout)
+        self.performance_summary = label("", "muted")
+        self.performance_summary.setAccessibleName("Configured processing budget")
+        sections["Performance"][0].body_layout.addWidget(self.performance_summary)
         sections["Performance"][1].addRow(
             label(
                 "Recommended on Intel: 2 CPU threads and 8 analyses per second per live source. "
@@ -788,6 +791,10 @@ class DesktopWindow(QMainWindow):
         self.diagnostics.setMinimumHeight(230)
         self.diagnostics.setToolTip("Updates once a second; focus to pause updates and copy text.")
         privacy.body_layout.addWidget(self.diagnostics)
+        self.button("Copy diagnostics", self.copy_diagnostics, privacy.body_layout)
+        privacy.body_layout.addWidget(
+            label("Diagnostics include local paths and device IDs. Review before sharing.", "muted")
+        )
         self.diagnostic_section = privacy
         settings.addWidget(privacy)
         advanced = Foldout("Import configuration")
@@ -1265,7 +1272,12 @@ class DesktopWindow(QMainWindow):
         self.update_camera_summary()
         if self.diagnostics.hasFocus() or self.diagnostics.textCursor().hasSelection():
             return
+        import resource
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_mb = peak / (1024 * 1024 if sys.platform == "darwin" else 1024)
         lines = [
+            f"Measured peak process memory: {peak_mb:.1f} MiB (includes the desktop and workers)",
             f"ROADLENS 0.1.0 | Python {platform.python_version()} | {platform.machine()}",
             f"{platform.platform()} | OpenCV {cv2.__version__}",
             f"Model: {self.config.model}",
@@ -1289,7 +1301,12 @@ class DesktopWindow(QMainWindow):
             if result:
                 lines.append(
                     f"inference {result.inference_ms:.1f} ms | "
-                    f"frame age {result.latency_ms:.1f} ms | epoch {result.epoch}"
+                    + (
+                        "recording timestamps"
+                        if pipeline.source.kind == "video"
+                        else f"frame age {result.latency_ms:.1f} ms"
+                    )
+                    + f" | epoch {result.epoch}"
                 )
             if pipeline.error:
                 lines.append(f"ERROR: {pipeline.error}")
@@ -1581,6 +1598,11 @@ class DesktopWindow(QMainWindow):
         self.model_edit.setText(self.config.model)
         self.database_edit.setText(self.config.analytics.database or "")
         self.settings_changed.clear()
+        self.performance_summary.setText(
+            f"Configured: {self.config.threads} CPU threads. "
+            f"{self.config.inference_fps:g} analyses/s "
+            "per live source. Unpaced recordings process every frame."
+        )
         for key, widget in self.settings_fields.items():
             configured = (
                 getattr(self.config, key)
@@ -1994,6 +2016,11 @@ class DesktopWindow(QMainWindow):
             "\n".join(lines)
             or "No camera is open. Use Manage cameras to find an available Mac or iPhone camera."
         )
+
+    def copy_diagnostics(self):
+        text = self.diagnostics.textCursor().selectedText() or self.diagnostics.toPlainText()
+        QApplication.clipboard().setText(text.replace("\u2029", "\n"))
+        self.statusBar().showMessage("Diagnostics copied. Review local paths before sharing.")
 
 
 def main(argv=None):

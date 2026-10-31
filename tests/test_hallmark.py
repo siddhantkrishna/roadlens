@@ -414,3 +414,15 @@ def test_camera_preferences_do_not_claim_unopened_hardware_is_connected(window):
     assert "Measured capture" not in window.camera_summary.text()
     assert not window.pipelines
     assert window.selected_source().value == "unit-id"
+
+
+def test_processing_budget_uses_saved_values_and_reports_measured_memory(window):
+    from dataclasses import replace
+
+    window.config = replace(window.config, threads=3, inference_fps=5.5)
+    window.populate_settings()
+    assert "3 CPU threads" in window.performance_summary.text()
+    assert "5.5 analyses/s" in window.performance_summary.text()
+    window.diagnostics.clearFocus()
+    window.update_diagnostics()
+    assert "Measured peak process memory" in window.diagnostics.toPlainText()

@@ -267,12 +267,14 @@ class DesktopWindow(QMainWindow):
         self.nav_buttons = []
         self.navigation_group = QButtonGroup(self)
         for index, title in enumerate(("Monitor", "Analysis", "Settings")):
-            button = self.button(title, lambda _, i=index: self.tabs.setCurrentIndex(i), navigation)
+            button = QPushButton(title)
+            navigation.addWidget(button)
             button.setObjectName("navigation")
             button.setCheckable(True)
             button.setAccessibleName(f"Open {title}")
             self.navigation_group.addButton(button, index)
             self.nav_buttons.append(button)
+        self.navigation_group.idClicked.connect(self.tabs.setCurrentIndex)
         navigation.addStretch()
         self.global_status = label("Ready", "muted")
         self.global_status.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -310,8 +312,18 @@ class DesktopWindow(QMainWindow):
         for index, button in enumerate(self.nav_buttons):
             action = QAction(button.text(), self)
             action.setShortcut(f"Ctrl+{index + 1}")
-            action.triggered.connect(lambda _, i=index: self.tabs.setCurrentIndex(i))
+            action.setData(index)
+            action.triggered.connect(self.activate_workspace_action)
             self.addAction(action)
+        preferences = QAction("Settings…", self)
+        preferences.setMenuRole(QAction.MenuRole.PreferencesRole)
+        preferences.setShortcut("Ctrl+,")
+        preferences.triggered.connect(self.open_preferences)
+        self.menuBar().addAction(preferences)
+        focus_source = QAction("Select source", self)
+        focus_source.setShortcut("Ctrl+L")
+        focus_source.triggered.connect(self.focus_source)
+        self.addAction(focus_source)
         view_menu = self.menuBar().addMenu("View")
         self.geometry_action = view_menu.addAction("Show road geometry")
         self.geometry_action.setCheckable(True)
@@ -2021,6 +2033,17 @@ class DesktopWindow(QMainWindow):
         text = self.diagnostics.textCursor().selectedText() or self.diagnostics.toPlainText()
         QApplication.clipboard().setText(text.replace("\u2029", "\n"))
         self.statusBar().showMessage("Diagnostics copied. Review local paths before sharing.")
+
+    def activate_workspace_action(self):
+        self.tabs.setCurrentIndex(self.sender().data())
+
+    def open_preferences(self):
+        self.tabs.setCurrentIndex(2)
+        self.appearance.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def focus_source(self):
+        self.tabs.setCurrentIndex(0)
+        self.source_selector.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
 
 def main(argv=None):

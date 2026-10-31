@@ -297,6 +297,7 @@ class SceneEditor(QDialog):
             ("Reverse label", self.reverse),
             ("Line deadband", self.hysteresis),
         ):
+            widget.setAccessibleName(field_title)
             form.addRow(field_title, widget)
         for title, callback in (
             ("New geometry", self.new_geometry),
@@ -340,11 +341,18 @@ class SceneEditor(QDialog):
         for title, shortcut, callback in (
             ("Undo edit", QKeySequence.StandardKey.Undo, self.undo),
             ("Delete measurement", "Ctrl+Backspace", self.delete),
+            ("Draw counting line", "L", self.begin_counting),
+            ("Draw road area", "R", self.begin_road),
         ):
-            action = QAction(title, self)
+            action = QAction(title, self.canvas)
             action.setShortcut(shortcut)
+            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             action.triggered.connect(callback)
-            self.addAction(action)
+            self.canvas.addAction(action)
+        self.canvas.setAccessibleDescription(
+            "Drawing canvas. Press L for a counting line, R for a road area. "
+            "Click points, drag vertices, use arrows to nudge, Enter to apply, Escape to clear."
+        )
         self.refresh()
 
     def refresh(self):

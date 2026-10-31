@@ -426,3 +426,20 @@ def test_processing_budget_uses_saved_values_and_reports_measured_memory(window)
     window.diagnostics.clearFocus()
     window.update_diagnostics()
     assert "Measured peak process memory" in window.diagnostics.toPlainText()
+
+
+def test_workspace_focus_and_native_preferences_shortcuts(window, qt_app):
+    from PySide6.QtGui import QAction
+
+    window.open_preferences()
+    qt_app.processEvents()
+    assert window.tabs.currentIndex() == 2 and window.appearance.hasFocus()
+    window.focus_source()
+    qt_app.processEvents()
+    assert window.tabs.currentIndex() == 0
+    preferences = next(a for a in window.findChildren(QAction) if a.text() == "Settings…")
+    assert preferences.menuRole() == QAction.MenuRole.PreferencesRole
+    window.nav_buttons[1].click()
+    assert window.tabs.currentIndex() == 1 and window.nav_buttons[1].isChecked()
+    window.nav_buttons[1].click()
+    assert window.nav_buttons[1].isChecked()

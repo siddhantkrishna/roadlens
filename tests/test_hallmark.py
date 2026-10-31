@@ -402,3 +402,15 @@ def test_session_comparison_uses_only_matching_observed_sessions(window, qt_app)
     window.reset_history()
     spin(qt_app, lambda: not window.jobs)
     assert window.analysis_empty.isVisible() and not window.analysis_scroll.isVisible()
+
+
+def test_camera_preferences_do_not_claim_unopened_hardware_is_connected(window):
+
+    window.cameras_discovered([{"id": "unit-id", "name": "Unit camera", "type": "External"}])
+    window.add_camera()
+    window.update_camera_summary()
+    assert "Unit camera" in window.camera_summary.text()
+    assert "Last received format" not in window.camera_summary.text()
+    assert "Measured capture" not in window.camera_summary.text()
+    assert not window.pipelines
+    assert window.selected_source().value == "unit-id"

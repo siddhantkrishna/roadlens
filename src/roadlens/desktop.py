@@ -752,6 +752,10 @@ class DesktopWindow(QMainWindow):
         sections["Camera"][1].addRow(
             label("macOS negotiates resolution and frame rate with the camera.", "muted")
         )
+        self.camera_summary = label("No camera is open.", "muted")
+        self.camera_summary.setAccessibleName("Actual camera connection and video format")
+        sections["Camera"][0].body_layout.addWidget(self.camera_summary)
+        self.button("Manage cameras…", self.manage_sources, sections["Camera"][0].body_layout)
         self.button("Camera permission help", self.camera_help, sections["Camera"][0].body_layout)
         sections["Performance"][1].addRow(
             label(
@@ -1258,6 +1262,7 @@ class DesktopWindow(QMainWindow):
             self.close()
 
     def update_diagnostics(self):
+        self.update_camera_summary()
         if self.diagnostics.hasFocus() or self.diagnostics.textCursor().hasSelection():
             return
         lines = [
@@ -1711,7 +1716,7 @@ class DesktopWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Camera access on macOS",
-            "Click Discover cameras, add the actual device, then Start. "
+            "Open Sources, choose Find cameras, add your device, then Start. "
             "Accept the macOS camera prompt.\n\n"
             "If denied: System Settings → Privacy & Security → Camera. Enable ROADLENS / "
             "ROADLENS Camera or the launching terminal, then restart capture.\n\n"
@@ -1970,6 +1975,25 @@ class DesktopWindow(QMainWindow):
         from PySide6.QtCore import QUrl
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_export_dir)))
+
+    def update_camera_summary(self):
+        lines = []
+        for source in self.sources:
+            if source.kind == "video":
+                continue
+            pane = self.panes[source.name]
+            result = self.latest.get(source.name)
+            pipeline = self.pipelines.get(source.name)
+            lines.append(f"{source.name}: {pane.status.text()}")
+            if result is not None:
+                height, width = result.image.shape[:2]
+                lines.append(f"Last received format: {width} × {height} pixels.")
+            if pipeline and pipeline.capture.capture_fps:
+                lines.append(f"Measured capture: {pipeline.capture.capture_fps:.1f} frames/s.")
+        self.camera_summary.setText(
+            "\n".join(lines)
+            or "No camera is open. Use Manage cameras to find an available Mac or iPhone camera."
+        )
 
 
 def main(argv=None):

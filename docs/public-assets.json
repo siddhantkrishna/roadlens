@@ -12,21 +12,51 @@
     "description": "Frames 94-105, re-encoded Motion JPEG at 12 FPS."
   },
   "docs/images/monitor.png": {
-    "sha256": "2788e056c687f054543e1b4e18bb4836414cc7af356ae92896473737c12ad04e",
+    "sha256": "bc1cf00e1a1356664c07a9587a93e8b968991b37ca4e6bec2c0764eaf8c613c3",
     "license": "AGPL-3.0-only AND CC-BY-4.0",
     "source": "scripts/capture_screenshots.py; assets/traffic.avi",
-    "description": "Actual ROADLENS Qt UI and real inference on the public Intel fixture."
+    "description": "Actual native macOS Cocoa Qt capture after the Hallmark redesign, using only the public Intel fixture. No physical camera validation."
   },
   "docs/images/history.png": {
-    "sha256": "19256413324d804d4280d3d4fe0060703fd176edc195b05301bcf43f26b56867",
+    "sha256": "f3217f0d126918cc3066ca899586b0632597a50ea858a8c474a1e6a7da731d76",
     "license": "AGPL-3.0-only AND CC-BY-4.0",
     "source": "scripts/capture_screenshots.py; assets/traffic.avi",
-    "description": "Actual saved counts/flow/observed dwell from the public Intel fixture."
+    "description": "Actual native macOS Cocoa Qt capture after the Hallmark redesign, using only the public Intel fixture. No physical camera validation."
   },
   "docs/images/scene-editor.png": {
-    "sha256": "b1495c20036675aa8ab02909f4c47d7bd5145573bbed0174cd1fb70f66c09e6e",
+    "sha256": "7d7b34efb919bccce3f7b99f106b2d792bdc38117e24e910f878b68443a7808c",
     "license": "AGPL-3.0-only AND CC-BY-4.0",
     "source": "scripts/capture_screenshots.py; assets/traffic.avi",
-    "description": "Actual scene editor over the public Intel fixture."
+    "description": "Actual native macOS Cocoa Qt capture after the Hallmark redesign, using only the public Intel fixture. No physical camera validation."
+  },
+  "docs/images/settings.png": {
+    "sha256": "e9ea2c338ed30f38ade60cfb0878f10b58c2f74b28ae21e8756725533d8fdca7",
+    "license": "AGPL-3.0-only",
+    "source": "scripts/capture_screenshots.py; assets/traffic.avi",
+    "description": "Actual native macOS Cocoa Qt capture after the Hallmark redesign, using only the public Intel fixture. No physical camera validation."
+  },
+  "docs/images/monitor-dark.png": {
+    "sha256": "17a71c38524500a8d4b04921189caac8dd41d48b75e58da4fc020c86e0359fb5",
+    "license": "AGPL-3.0-only AND CC-BY-4.0",
+    "source": "scripts/capture_screenshots.py; assets/traffic.avi",
+    "description": "Actual native macOS Cocoa Qt capture after the Hallmark redesign, using only the public Intel fixture. No physical camera validation."
+  },
+  "docs/images/monitor-before.png": {
+    "sha256": "9a6745766bab3fee042091bb075c01ae8a8459b0534f4944a8133da096d940ed",
+    "license": "AGPL-3.0-only AND CC-BY-4.0",
+    "source": "scripts/capture_screenshots.py at 6866f82; assets/traffic.avi",
+    "description": "Unmodified actual baseline Qt capture before the Hallmark redesign, using only the public Intel fixture."
+  },
+  "docs/images/history-before.png": {
+    "sha256": "561e1301d6683f6ecebda878133c25f99ae31d702011c6a974ad65679339591e",
+    "license": "AGPL-3.0-only AND CC-BY-4.0",
+    "source": "scripts/capture_screenshots.py at 6866f82; assets/traffic.avi",
+    "description": "Unmodified actual baseline Qt capture before the Hallmark redesign, using only the public Intel fixture."
+  },
+  "docs/images/scene-editor-before.png": {
+    "sha256": "182fa9dc0a5684160422cf47e8a07979aba1bd36e0c63722a4a17ae7ddae3e53",
+    "license": "AGPL-3.0-only AND CC-BY-4.0",
+    "source": "scripts/capture_screenshots.py at 6866f82; assets/traffic.avi",
+    "description": "Unmodified actual baseline Qt capture before the Hallmark redesign, using only the public Intel fixture."
   }
 }

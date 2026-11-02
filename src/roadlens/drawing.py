@@ -21,3 +21,7 @@ def fit_text(text: str, width: int, scale: float = 0.5) -> str:
         else:
             high = middle - 1
     return text[:low] + "..."
+
+
+# BGR counterparts for the native preview's fixed video surface; CLI colors stay compatible.
+OVERLAY = {"box": (149, 181, 157), "plate": (29, 36, 30), "ink": (224, 239, 230)}

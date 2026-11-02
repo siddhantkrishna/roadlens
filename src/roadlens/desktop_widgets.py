@@ -1,10 +1,21 @@
 """Native, aspect-correct previews, scene editing and traffic charts."""
 
+import json
 import math
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QImage,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -16,16 +27,21 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSplitter,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from roadlens.desktop_design import CheckBox, Foldout, colors_for, feedback, heading, label
 from roadlens.traffic.scene import CountingLine, Scene, Zone
 
 
 class Preview(QWidget):
     finished = Signal()
+    geometry_selected = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -33,6 +49,10 @@ class Preview(QWidget):
         self.scene = Scene()
         self.points: list[tuple[float, float]] = []
         self.editable = False
+        self.show_geometry = False
+        self.empty_message = "No frames yet. Start the selected source."
+        self.point_history = []
+        self.selection_enabled = True
         self.polygon = True
         self.drag = None
         self.setMinimumSize(320, 180)
@@ -70,36 +90,60 @@ class Preview(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        c = colors_for(self)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#0b161e"))
+        painter.fillRect(self.rect(), QColor(c["preview"]))
         if self.image.isNull():
-            painter.setPen(QColor("#afc5cf"))
+            painter.setPen(QColor(c["preview_ink"]))
             painter.drawText(
                 self.rect(),
                 Qt.AlignmentFlag.AlignCenter,
-                "No frames yet\nStart a source to see its actual camera or video.",
+                self.empty_message,
             )
             return
         painter.drawImage(self.image_rect(), self.image)
-        if self.editable:
+        if self.editable or self.show_geometry:
+
+            def geometry_label(text, position):
+                metrics = painter.fontMetrics()
+                text = metrics.elidedText(
+                    text, Qt.TextElideMode.ElideRight, max(1, int(self.image_rect().width()) - 16)
+                )
+                width, height = metrics.horizontalAdvance(text) + 8, metrics.height() + 6
+                x = max(
+                    self.image_rect().left(), min(position.x(), self.image_rect().right() - width)
+                )
+                y = max(
+                    self.image_rect().top() + 3,
+                    min(position.y() - height - 5, self.image_rect().bottom() - height),
+                )
+                box = QRectF(x, y, width, height)
+                painter.fillRect(box, QColor(c["preview"]))
+                painter.setPen(QColor(c["preview_ink"]))
+                painter.drawText(box.adjusted(4, 0, -4, 0), Qt.AlignmentFlag.AlignVCenter, text)
+
             for zone in self.scene.zones:
-                painter.setPen(QPen(QColor("#56cdb1"), 2))
+                painter.setPen(QPen(QColor(c["geometry"]), 2))
                 painter.drawPolygon(QPolygonF([self.mapped(p) for p in zone.polygon]))
-                painter.drawText(self.mapped(zone.polygon[0]), zone.id)
+                if self.editable:
+                    geometry_label(zone.name, self.mapped(zone.polygon[0]))
             for line in self.scene.lines:
-                painter.setPen(QPen(QColor("#ffca70"), 2))
+                painter.setPen(QPen(QColor(c["line"]), 2))
                 painter.drawLine(self.mapped(line.start), self.mapped(line.end))
-                painter.drawText(self.mapped(line.start), line.id)
+                if self.editable:
+                    geometry_label(f"Line: {line.id}", self.mapped(line.start))
             if self.points:
-                painter.setPen(QPen(QColor("#ffffff"), 2))
+                painter.setPen(QPen(QColor(c["draft"]), 2))
                 polygon = QPolygonF([self.mapped(p) for p in self.points])
                 if self.polygon and len(self.points) > 2:
-                    painter.setBrush(QColor(70, 200, 170, 40))
+                    shade = QColor(c["geometry"])
+                    shade.setAlpha(32)
+                    painter.setBrush(shade)
                     painter.drawPolygon(polygon)
                 else:
                     painter.drawPolyline(polygon)
-                painter.setBrush(QColor("#ffffff"))
+                painter.setBrush(QColor(c["draft"]))
                 for point in self.points:
                     painter.drawEllipse(self.mapped(point), 5, 5)
 
@@ -111,6 +155,39 @@ class Preview(QWidget):
         if point is None:
             return
         self.drag = None
+        if self.selection_enabled and not any(
+            math.dist(self.mapped(vertex).toTuple(), event.position().toTuple()) <= 10
+            for vertex in self.points
+        ):
+            objects = (*self.scene.zones, *self.scene.lines)
+            for index, item in reversed(list(enumerate(objects))):
+                if isinstance(item, CountingLine):
+                    a, b = self.mapped(item.start), self.mapped(item.end)
+                    length = (b.x() - a.x()) ** 2 + (b.y() - a.y()) ** 2
+                    t = max(
+                        0,
+                        min(
+                            1,
+                            (
+                                (event.position().x() - a.x()) * (b.x() - a.x())
+                                + (event.position().y() - a.y()) * (b.y() - a.y())
+                            )
+                            / max(1, length),
+                        ),
+                    )
+                    near = (
+                        math.dist(
+                            (a.x() + t * (b.x() - a.x()), a.y() + t * (b.y() - a.y())),
+                            event.position().toTuple(),
+                        )
+                        <= 8
+                    )
+                else:
+                    near = item.contains(point)
+                if near:
+                    self.geometry_selected.emit(index)
+                    return
+        self.point_history.append(list(self.points))
         for index, vertex in enumerate(self.points):
             if math.dist(self.mapped(vertex).toTuple(), event.position().toTuple()) <= 10:
                 self.drag = index
@@ -134,10 +211,12 @@ class Preview(QWidget):
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.finished.emit()
         elif key == Qt.Key.Key_Escape:
+            self.point_history.append(list(self.points))
             self.points.clear()
             self.drag = None
         elif key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
             if self.points:
+                self.point_history.append(list(self.points))
                 self.points.pop(self.drag if self.drag is not None else -1)
             self.drag = None
         elif self.drag is not None and key in (
@@ -146,44 +225,80 @@ class Preview(QWidget):
             Qt.Key.Key_Up,
             Qt.Key.Key_Down,
         ):
+            self.point_history.append(list(self.points))
             x, y = self.points[self.drag]
             x += 0.001 * ((key == Qt.Key.Key_Right) - (key == Qt.Key.Key_Left))
             y += 0.001 * ((key == Qt.Key.Key_Down) - (key == Qt.Key.Key_Up))
             self.points[self.drag] = (max(0, min(1, x)), max(0, min(1, y)))
         self.update()
 
+    def mouseDoubleClickEvent(self, event):
+        if self.editable and self.polygon and len(self.points) >= 3:
+            self.finished.emit()
+        else:
+            super().mouseDoubleClickEvent(event)
+
 
 class SceneEditor(QDialog):
-    def __init__(self, scene: Scene, image: QImage, parent=None):
+    def __init__(self, scene: Scene, image: QImage, parent=None, *, detection_image=None):
         super().__init__(parent)
-        self.setWindowTitle("Configure road scene")
+        self.setWindowTitle("Configure road")
         self.resize(1080, 720)
         self.scene = scene
         self.selected = None
+        self.history = []
+        self.clean_image = image
+        self.detection_image = detection_image if detection_image is not None else image
         layout = QVBoxLayout(self)
-        instructions = QLabel(
-            "Draw over a stopped frame. Click vertices, drag to adjust, then Apply. "
-            "For a left-to-right line, forward crosses down the image. "
-            "Changes apply to the next session."
+        layout.setContentsMargins(24, 24, 24, 20)
+        layout.setSpacing(12)
+        heading(layout, "Configure road", "Draw on the frame, then save the measurements you need.")
+        self.instructions = label(
+            "Select an existing measurement to edit it. Click points to draw a new one.", "muted"
         )
-        instructions.setWordWrap(True)
-        layout.addWidget(instructions)
-        body = QHBoxLayout()
-        layout.addLayout(body, 1)
+        layout.addWidget(self.instructions)
+        self.tools = QHBoxLayout()
+        self.count_tool = QPushButton("Count vehicles")
+        self.count_tool.setCheckable(True)
+        self.count_tool.clicked.connect(self.begin_counting)
+        self.tools.addWidget(self.count_tool)
+        self.road_tool = QPushButton("Measure congestion")
+        self.road_tool.setCheckable(True)
+        self.road_tool.clicked.connect(self.begin_road)
+        self.tools.addWidget(self.road_tool)
+        self.tools.addStretch()
+        layout.addLayout(self.tools)
+        self.detections = CheckBox("Show detections")
+        self.detections.toggled.connect(self.toggle_detections)
+        layout.addWidget(self.detections)
+        body = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(body, 1)
         self.canvas = Preview()
         self.canvas.editable = True
         self.canvas.scene = scene
         self.canvas.set_image(image)
         self.canvas.finished.connect(self.apply_geometry)
-        body.addWidget(self.canvas, 3)
-        controls = QVBoxLayout()
-        body.addLayout(controls, 1)
+        self.canvas.geometry_selected.connect(self.select_geometry)
+        body.addWidget(self.canvas)
+        panel = QWidget()
+        panel.setObjectName("page")
+        controls = QVBoxLayout(panel)
+        controls.setContentsMargins(12, 0, 0, 0)
+        panel_scroll = QScrollArea()
+        panel_scroll.setWidgetResizable(True)
+        panel_scroll.setMinimumWidth(260)
+        panel_scroll.setWidget(panel)
+        body.addWidget(panel_scroll)
+        body.setStretchFactor(0, 3)
+        body.setStretchFactor(1, 1)
         self.items = QListWidget()
         self.items.setAccessibleName("Existing scene geometry")
         self.items.currentRowChanged.connect(self.select_geometry)
         controls.addWidget(self.items)
+        self.advanced = Foldout("Advanced")
         form = QFormLayout()
-        controls.addLayout(form)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        self.advanced.body_layout.addLayout(form)
         self.kind = QComboBox()
         self.kind.addItems(["road", "lane", "queue", "exclude", "line"])
         self.kind.currentTextChanged.connect(self.kind_changed)
@@ -195,48 +310,95 @@ class SceneEditor(QDialog):
         self.hysteresis.setToolTip(
             "Normalized perpendicular distance, greater than 0 and at most 0.05"
         )
-        for label, widget in (
-            ("Kind", self.kind),
-            ("ID", self.identifier),
-            ("Name", self.name),
+        for field_title, widget in (
+            ("Measurement type", self.kind),
+            ("Geometry ID", self.identifier),
+            ("Area name", self.name),
             ("Forward label", self.forward),
             ("Reverse label", self.reverse),
             ("Line deadband", self.hysteresis),
         ):
-            form.addRow(label, widget)
+            widget.setAccessibleName(field_title)
+            form.addRow(field_title, widget)
         for title, callback in (
             ("New geometry", self.new_geometry),
             ("Apply geometry", self.apply_geometry),
-            ("Undo last vertex", self.undo),
-            ("Delete selected", self.delete),
+            ("Undo", self.undo),
+            ("Delete measurement", self.delete),
             ("Load scene JSON…", self.load_scene),
         ):
             button = QPushButton(title)
             button.clicked.connect(callback)
-            controls.addWidget(button)
+            target = (
+                self.advanced.body_layout
+                if title in ("New geometry", "Load scene JSON…")
+                else controls
+            )
+            target.addWidget(button)
+        self.calibration_edit = QTextEdit()
+        self.calibration_edit.setAccessibleName("Calibration JSON")
+        self.calibration_edit.setMinimumHeight(150)
+        self.calibration_edit.setPlainText(
+            json.dumps(asdict(scene.calibration) if scene.calibration else None, indent=2)
+        )
+        self.original_calibration = self.calibration_edit.toPlainText()
+        form.addRow("Verified ground calibration JSON", self.calibration_edit)
+        form.addRow(
+            label(
+                "Speed needs verified calibration. Leave null without measurements.",
+                "muted",
+            )
+        )
+        controls.addWidget(self.advanced)
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
+        self.buttons.button(QDialogButtonBox.StandardButton.Save).setObjectName("primary")
+        self.buttons.button(QDialogButtonBox.StandardButton.Save).setDefault(True)
         self.buttons.accepted.connect(self.save)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
+        for title, shortcut, callback in (
+            ("Undo edit", QKeySequence.StandardKey.Undo, self.undo),
+            ("Delete measurement", "Ctrl+Backspace", self.delete),
+            ("Draw counting line", "L", self.begin_counting),
+            ("Draw road area", "R", self.begin_road),
+        ):
+            action = QAction(title, self.canvas)
+            action.setShortcut(shortcut)
+            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            action.triggered.connect(callback)
+            self.canvas.addAction(action)
+        self.canvas.setAccessibleDescription(
+            "Drawing canvas. Press L for a counting line, R for a road area. "
+            "Click points, drag vertices, use arrows to nudge, Enter to apply, Escape to clear."
+        )
+        self.road_tool.setChecked(True)
+        self.instructions.setText(
+            "Measure congestion is selected. Draw road corners or choose Count vehicles."
+        )
         self.refresh()
 
     def refresh(self):
         self.items.blockSignals(True)
         self.items.clear()
         for zone in self.scene.zones:
-            self.items.addItem(f"{zone.kind} / {zone.id}")
+            self.items.addItem(zone.name)
         for line in self.scene.lines:
-            self.items.addItem(f"line / {line.id}")
+            self.items.addItem(f"Counting line ({line.id})")
+            self.items.item(self.items.count() - 1).setToolTip(
+                f"{line.id}: {line.forward} / {line.reverse}"
+            )
         self.items.blockSignals(False)
         self.canvas.scene = self.scene
         self.canvas.update()
 
     def kind_changed(self, kind):
+        self.count_tool.setChecked(kind == "line")
+        self.road_tool.setChecked(kind == "road")
         self.canvas.polygon = kind != "line"
         self.canvas.points.clear()
         self.canvas.drag = None
@@ -246,6 +408,8 @@ class SceneEditor(QDialog):
         self.selected = None
         self.identifier.setReadOnly(False)
         self.canvas.points.clear()
+        self.canvas.point_history.clear()
+        self.canvas.selection_enabled = True
         self.canvas.drag = None
         existing = {item.id for item in (*self.scene.zones, *self.scene.lines)}
         index = 1
@@ -272,6 +436,8 @@ class SceneEditor(QDialog):
             self.canvas.points = list(item.polygon)
             self.name.setText(item.name)
         self.canvas.drag = None
+        self.canvas.selection_enabled = True
+        self.canvas.point_history.clear()
         self.canvas.update()
 
     def apply_geometry(self):
@@ -303,23 +469,33 @@ class SceneEditor(QDialog):
                 )
             if self.selected and self.selected[0] != collection:
                 updated = updated.without(self.selected[1], collection=self.selected[0])
+            if self.scene != updated:
+                self.history.append(self.scene)
             self.scene = updated
-            self.status.setText("Geometry validated. Save to use it in the next session.")
+            feedback(self.status, "Measurement added. Save to use it in the next session.")
             self.refresh()
             self.new_geometry()
             return True
         except (ValueError, TypeError) as error:
-            self.status.setText(str(error))
+            feedback(self.status, str(error), error=True)
             return False
 
     def undo(self):
-        if self.canvas.points:
+        if self.canvas.point_history:
+            self.canvas.points = self.canvas.point_history.pop()
+        elif self.canvas.points:
             self.canvas.points.pop()
+        elif self.history:
+            self.scene = self.history.pop()
+            self.refresh()
+            self.new_geometry()
+            self.status.setText("Last change undone.")
         self.canvas.drag = None
         self.canvas.update()
 
     def delete(self):
         if self.selected:
+            self.history.append(self.scene)
             self.scene = self.scene.without(self.selected[1], collection=self.selected[0])
             self.refresh()
             self.new_geometry()
@@ -328,93 +504,277 @@ class SceneEditor(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, "Load scene", "", "Scene JSON (*.json)")
         if path:
             try:
-                self.scene = Scene.load(Path(path))
+                loaded = Scene.load(Path(path))
+                self.history.append(self.scene)
+                self.scene = loaded
+                self.calibration_edit.setPlainText(
+                    json.dumps(asdict(loaded.calibration) if loaded.calibration else None, indent=2)
+                )
+                self.original_calibration = self.calibration_edit.toPlainText()
                 self.refresh()
                 self.new_geometry()
+                feedback(self.status, "Scene loaded. Save to apply it to the next session.")
             except (OSError, ValueError, TypeError, KeyError) as error:
-                self.status.setText(str(error))
+                feedback(self.status, str(error), error=True)
 
     def save(self):
+        if self.calibration_edit.toPlainText() != self.original_calibration:
+            try:
+                values = asdict(self.scene)
+                values["calibration"] = json.loads(self.calibration_edit.toPlainText())
+                updated = Scene.from_dict(values)
+                if updated.calibration != self.scene.calibration:
+                    self.scene = replace(updated, revision=updated.revision + 1)
+            except (ValueError, TypeError, KeyError) as error:
+                self.status.setText(f"Calibration: {error}")
+                return
         if self.canvas.points and not self.apply_geometry():
             return
         self.accept()
 
+    def toggle_detections(self, enabled):
+        self.canvas.set_image(self.detection_image if enabled else self.clean_image)
+
+    def begin_tool(self, kind):
+        if self.canvas.points and not self.apply_geometry():
+            self.count_tool.setChecked(self.kind.currentText() == "line")
+            self.road_tool.setChecked(self.kind.currentText() == "road")
+            return
+        self.kind.setCurrentText(kind)
+        self.new_geometry()
+        self.canvas.selection_enabled = False
+        self.count_tool.setChecked(kind == "line")
+        self.road_tool.setChecked(kind == "road")
+        if kind == "road":
+            self.name.setText(f"Road area {len(self.scene.zones) + 1}")
+        self.instructions.setText(
+            "Click two points across the road. Drag to adjust, then Save."
+            if kind == "line"
+            else "Click at least three road corners. Save or double-click to finish."
+        )
+        self.canvas.setFocus()
+
+    def begin_counting(self):
+        self.begin_tool("line")
+
+    def begin_road(self):
+        self.begin_tool("road")
+
 
 class FlowChart(QWidget):
-    COLORS = ("#59dbc0", "#ffcc7b", "#89b5ff", "#ef93b4", "#bda8ff")
-
     def __init__(self):
         super().__init__()
-        self.windows = []
-        self.series = ""
-        self.setMinimumSize(360, 210)
-        self.setAccessibleName("Traffic flow chart, vehicles per observed minute")
-        self.setToolTip(
-            "Rates use observed time in saved measurement windows. "
-            "Gaps and unavailable rates are not plotted as zero."
-        )
+        self.windows, self.series = [], ""
+        self.measure_kind, self.zone = "flow", ""
+        self.setMinimumSize(270, 235)
+        self.setAccessibleName("Observed directional traffic flow")
 
     def set_windows(self, windows):
         self.windows = windows[-240:]
+        self.setAccessibleDescription(
+            "; ".join(
+                f"{w['start_time']:.1f} to {w['end_time']:.1f} seconds: {w['flow_per_minute']}"
+                for w in self.windows[-6:]
+            )
+        )
         self.update()
 
     def paintEvent(self, event):
+        c = colors_for(self)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#12232e"))
-        painter.setPen(QColor("#bfd3dc"))
-        painter.drawText(16, 24, "TRAFFIC FLOW  /  vehicles per observed minute")
+        painter.fillRect(self.rect(), QColor(c["surface"]))
+        painter.setPen(QColor(c["text"]))
+        title, units = {
+            "flow": ("Traffic flow", "Vehicles per observed minute"),
+            "occupancy": ("Road occupancy", "Occupied road area (%)"),
+            "congestion": ("Congested time", "Fraction of observed time (%)"),
+            "queue": ("Mean queue size", "Vehicles in the selected queue area"),
+        }[self.measure_kind]
+        painter.drawText(16, 24, title)
+        painter.setPen(QColor(c["muted"]))
+        painter.drawText(16, 43, units)
         points = [w for w in self.windows if w["observed_seconds"] > 0]
-        categories = [self.series] if self.series else []
-        rates = [
-            w["flow_per_minute"][key]
-            for w in points
-            for key in categories
-            if w["flow_per_minute"].get(key) is not None
-        ]
-        if not rates:
+        values = [self.value(w) for w in points]
+        measured = [v for v in values if v is not None]
+        if not measured:
             painter.drawText(
-                self.rect(), Qt.AlignmentFlag.AlignCenter, "Waiting for a measured counting window"
+                self.rect().adjusted(16, 50, -16, -16),
+                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                (
+                    "No measured flow yet. Configure a counting line."
+                    if self.measure_kind == "flow"
+                    else "No observed data for this area and measurement."
+                ),
             )
             return
-        graph = QRectF(50, 44, self.width() - 72, self.height() - 95)
-        maximum = max(1, max(rates))
+        largest = max(1, max(measured))
+        step = 10 ** math.floor(math.log10(largest))
+        maximum = (
+            100
+            if self.measure_kind in ("occupancy", "congestion")
+            else math.ceil(largest / step) * step
+        )
+        graph = QRectF(50, 65, self.width() - 72, self.height() - 120)
         left = min(w["start_time"] for w in points)
         right = max(left + 1, max(w["end_time"] for w in points))
-        painter.setPen(QPen(QColor("#334650"), 1))
         for index in range(4):
             y = graph.bottom() - graph.height() * index / 3
-            painter.setPen(QPen(QColor("#334650"), 1))
+            painter.setPen(QPen(QColor(c["rule"]), 1))
             painter.drawLine(QPointF(graph.left(), y), QPointF(graph.right(), y))
-            painter.setPen(QColor("#9db5c1"))
+            painter.setPen(QColor(c["muted"]))
             painter.drawText(
-                QRectF(0, y - 8, 44, 18), Qt.AlignmentFlag.AlignRight, f"{maximum * index / 3:.1f}"
+                QRectF(0, y - 9, 43, 18), Qt.AlignmentFlag.AlignRight, f"{maximum * index / 3:.1f}"
             )
-        painter.drawText(50, self.height() - 29, f"{left:.1f}s")
-        painter.drawText(self.width() - 80, self.height() - 29, f"{right:.1f}s")
-        for index, category in enumerate(categories):
-            painter.setPen(QPen(QColor(self.COLORS[index % len(self.COLORS)]), 2))
-            path = QPainterPath()
-            previous = None
-            for window in points:
-                value = window["flow_per_minute"].get(category)
-                if value is None:
-                    previous = None
-                    continue
-                x = graph.left() + (window["end_time"] - left) / (right - left) * graph.width()
-                y = graph.bottom() - value / maximum * graph.height()
-                if previous is None or window["start_time"] > previous + 0.001:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
-                painter.drawEllipse(QPointF(x, y), 2.5, 2.5)
-                previous = window["end_time"]
-            painter.drawPath(path)
-            legend = painter.fontMetrics().elidedText(
-                category, Qt.TextElideMode.ElideRight, self.width() - 36
+        painter.drawText(50, self.height() - 31, f"{left:.1f} s")
+        painter.drawText(self.width() - 78, self.height() - 31, f"{right:.1f} s")
+        painter.setPen(QPen(QColor(c["chart"]), 2))
+        path, previous = QPainterPath(), None
+        for window, value in zip(points, values, strict=True):
+            if value is None:
+                previous = None
+                continue
+            point = QPointF(
+                graph.left() + (window["end_time"] - left) / (right - left) * graph.width(),
+                graph.bottom() - value / maximum * graph.height(),
             )
-            painter.drawText(18, self.height() - 8, legend)
+            if previous is None or window["start_time"] > previous + 0.001:
+                path.moveTo(point)
+            else:
+                path.lineTo(point)
+            painter.drawEllipse(point, 3, 3)
+            previous = window["end_time"]
+        painter.drawPath(path)
+        painter.setPen(QColor(c["muted"]))
+        legend = (
+            self.series.replace("/", " / ").replace("_", " ")
+            if self.measure_kind == "flow"
+            else f"Area: {self.zone}. Gaps are unobserved time."
+        )
+        painter.drawText(
+            16,
+            self.height() - 9,
+            painter.fontMetrics().elidedText(
+                legend, Qt.TextElideMode.ElideRight, self.width() - 32
+            ),
+        )
+
+    def value(self, window):
+        if self.measure_kind == "flow":
+            return window["flow_per_minute"].get(self.series)
+        values = window["zones"].get(self.zone, {})
+        if self.measure_kind == "occupancy":
+            value = values.get("image_occupancy")
+            return value * 100 if value is not None else None
+        if self.measure_kind == "congestion":
+            value = values.get("congested_seconds")
+            return (
+                value * 100 / window["observed_seconds"]
+                if value is not None and window["observed_seconds"] > 0
+                else None
+            )
+        return values.get("mean_queued_vehicles")
 
 
 def scene_for_source(path: str | None) -> Scene:
     return Scene.load(Path(path)) if path else Scene()
+
+
+class ClassificationChart(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.totals = {}
+        self.setMinimumSize(270, 220)
+        self.setAccessibleName("Vehicle classes by crossing events")
+        self.setToolTip(
+            "Crossing events by vehicle class. A vehicle can cross multiple counting lines."
+        )
+
+    def set_data(self, data):
+        self.totals = {}
+        for row in data.get("counts", []):
+            self.totals[row["category"]] = self.totals.get(row["category"], 0) + row["count"]
+        self.setAccessibleDescription(
+            "; ".join(f"{name}: {value}" for name, value in self.totals.items())
+        )
+        self.update()
+
+    def paintEvent(self, event):
+        from roadlens.desktop_design import font
+
+        c = colors_for(self)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor(c["surface"]))
+        painter.setPen(QColor(c["text"]))
+        painter.drawText(16, 24, "Vehicle classes")
+        painter.setPen(QColor(c["muted"]))
+        painter.drawText(16, 43, "Crossing events")
+        if not self.totals:
+            painter.drawText(
+                self.rect(), Qt.AlignmentFlag.AlignCenter, "No crossing events recorded"
+            )
+            return
+        rows = sorted(self.totals.items(), key=lambda row: (-row[1], row[0]))
+        if len(rows) == 1:
+            name, count = rows[0]
+            painter.setFont(font("metric"))
+            painter.setPen(QColor(c["text"]))
+            painter.drawText(16, 100, str(count))
+            painter.setFont(font())
+            painter.drawText(16, 125, name.title())
+            return
+        maximum = max(1, max(self.totals.values()))
+        for index, (name, count) in enumerate(rows):
+            y = 62 + index * 28
+            painter.setPen(QColor(c["text"]))
+            painter.drawText(16, y + 13, name.title())
+            painter.fillRect(
+                QRectF(100, y, (self.width() - 165) * count / maximum, 14), QColor(c["chart"])
+            )
+            painter.drawText(self.width() - 45, y + 13, str(count))
+
+
+class HeatmapLegend(QWidget):
+    def __init__(self):
+        super().__init__()
+        from roadlens.desktop_data import qimage
+        from roadlens.traffic.service import heatmap_pixels
+
+        pixels, _ = heatmap_pixels([list(range(256))])
+        self.ramp = qimage(pixels)
+        self.scale_max = None
+        self.setMinimumHeight(80)
+        self.setAccessibleName("Observed vehicle dwell heatmap scale")
+
+    def set_scale(self, maximum):
+        self.scale_max = maximum
+        self.setAccessibleDescription(
+            f"0 to {maximum:.3g} vehicle-seconds per cell. Relative to this session."
+            if maximum is not None
+            else "No observed heatmap data."
+        )
+        self.update()
+
+    def paintEvent(self, event):
+        c = colors_for(self)
+        painter = QPainter(self)
+        painter.setPen(QColor(c["muted"]))
+        if self.scale_max is None:
+            painter.drawText(0, 24, "No saved dwell observations")
+            return
+        if self.scale_max == 0:
+            painter.drawText(0, 24, "0 vehicle-seconds per cell recorded")
+            return
+        painter.drawImage(QRectF(0, 0, self.width(), 12), self.ramp)
+        painter.drawText(0, 32, "0")
+        painter.drawText(
+            self.rect().adjusted(0, 18, 0, 0),
+            Qt.AlignmentFlag.AlignRight,
+            f"{self.scale_max:.3g} vehicle-seconds / cell",
+        )
+        painter.drawText(
+            self.rect().adjusted(0, 38, 0, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
+            "Relative to this session. No background image is stored.",
+        )

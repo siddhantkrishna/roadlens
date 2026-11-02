@@ -44,6 +44,11 @@ PUBLIC_ASSETS = {
     "docs/images/monitor.png",
     "docs/images/history.png",
     "docs/images/scene-editor.png",
+    "docs/images/settings.png",
+    "docs/images/monitor-dark.png",
+    "docs/images/monitor-before.png",
+    "docs/images/history-before.png",
+    "docs/images/scene-editor-before.png",
 }
 PUBLIC_DIGESTS = {
     "190ba5f1e61411a001683e349d6b2cdb0804c0dc67a5e34cd8ff6fd00ee54b4d",

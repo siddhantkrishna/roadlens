@@ -19,12 +19,12 @@ speed-enforcement system. Apple Silicon has not been validated.
 
 | Capability | What it provides |
 | --- | --- |
-| Native desktop | Simultaneous source previews, camera settings, diagnostics and session history |
+| Native desktop | Video-first Monitor, measured Analysis and grouped Settings; system/light/dark appearance and keyboard navigation |
 | Local vision | YOLOv8n COCO detection of cars, motorcycles, buses, trucks and bicycles; class-aware tracking and motion overlays |
 | Camera identity | AVFoundation discovery, stable device IDs, Continuity Camera support and reconnect handling |
-| Scene configuration | Interactive road/lane/queue/exclusion polygons, finite counting lines and JSON scene import |
+| Scene configuration | Draw and edit road areas/counting lines on clean footage; reversible geometry edits and advanced calibrated-scene import |
 | Traffic intelligence | Directional crossing counts, image occupancy, persistent queues, congestion, stalls and statistical anomalies |
-| Analysis | Measured flow charts, trajectories and observed vehicle-dwell heatmaps |
+| Analysis | Measured flow, class and road-condition charts, compatible-session comparison, readable events and calibrated dwell legends |
 | Local records | SQLite sessions with scene/settings snapshots; PDF summaries and CSV/JSON exports |
 | CLI and verification | Headless processing, diagnostics and reviewed-footage accuracy checks alongside the desktop |
 
@@ -39,15 +39,20 @@ simulated traffic. No private recording, local path or device ID is included.
 ![Session history with one observed car crossing, flow chart and dwell heatmap](docs/images/history.png)
 
 <details>
-<summary>Interactive scene editor</summary>
+<summary>Scene editor, Settings and dark appearance</summary>
 
 ![Road-zone and counting-line editor over the same public recording](docs/images/scene-editor.png)
+
+![Grouped native preferences](docs/images/settings.png)
+
+![Native Monitor in dark appearance](docs/images/monitor-dark.png)
 
 </details>
 
 Attribution and reproduction: [public fixtures](assets/README.md),
 [screenshot script](scripts/capture_screenshots.py),
-[reviewed asset hashes](docs/public-assets.json).
+[reviewed asset hashes](docs/public-assets.json),
+[Hallmark audit and before/after comparisons](docs/HALLMARK.md).
 
 ## Installation
 
@@ -101,16 +106,31 @@ cleared public binary download. See [licensing](docs/LICENSING.md) and
 
 ### Desktop
 
-1. Open `roadlens-desktop` (or `python -m roadlens.desktop`).
-2. Choose **Discover cameras**, add the actual available device, then **Start**;
-   or choose **Import video** to analyze a local recording.
-3. Stop on a useful frame and choose **Configure scene**. Draw polygons or a
-   counting line, set its labels, then Apply or Save. Start a new session to use it.
-4. Select a source for its live counts and zone statistics. Open **History and
-   analysis** for saved sessions, flow series, events/anomalies and heatmaps.
-5. Select a saved session and export PDF, CSV or JSON. Settings apply between
-   sessions; diagnostics explain source failures and measured processing rates.
+1. Launch `roadlens-desktop` (or `python -m roadlens.desktop`). In **Monitor**, choose
+   **Sources… → Find cameras → Add camera**, or **Import video**. An imported
+   recording gets a real first-frame preview before analysis begins.
+2. Choose **Configure road** on a useful frame. Select **Count vehicles** to draw
+   a finite line or **Measure congestion** to draw a road area. Apply geometry,
+   then **Save**. Existing scene/calibration JSON and other geometry types remain
+   available under **Advanced**. Changes apply on the next Start.
+3. Press **Start**. Pause/Resume preserves every frame of an offline recording;
+   live resume starts a fresh tracking segment after the observation gap.
+   Count, traffic flow and road condition lead the display. Choose a counting line
+   for flow; **Details** exposes diagnostic measurements and **All sources**
+   shows simultaneous previews.
+4. Open **Analysis** and select a saved session. Inspect directional flow,
+   vehicle classes, occupancy/congested time/queues, dwell heatmap, and filtered
+   crossing/anomaly records. Missing or insufficient data is labeled explicitly.
+   **Sessions and comparison** offers only compatible finalized comparisons.
+5. Choose **Export…** for PDF/CSV/JSON; completion offers **Show folder**.
+   **Settings** groups Camera, Performance, Storage, thresholds, privacy and
+   diagnostics. Stop sources before **Save settings**. Appearance changes apply
+   immediately and persist independently.
 
+On macOS, Command+1/2/3 changes workspace, Command+O imports video,
+Command+L focuses source selection, and Command+, opens Settings. The scene
+canvas supports L/R drawing tools, vertex arrows, Enter, Escape and Command+Z.
+Keyboard focus is visible without changing control geometry.
 No geometry is inferred automatically. Counting needs a configured line;
 physical speed needs a verified, measured calibration. Overlapping cameras and
 zones are not combined into a global unique-vehicle count. Imported recordings
@@ -171,7 +191,7 @@ SQLite → separate history/export workers → charts, heatmaps, PDF / CSV / JSO
 | `detection.py`, `tracking.py`, `pipeline.py` | ONNX preprocessing/inference, per-class tracking, motion and worker lifecycles |
 | `traffic/scene.py`, `analyzer.py`, `statistics.py` | Validated geometry, crossing/queue/congestion logic and baseline anomalies |
 | `traffic/service.py`, `store.py` | Session snapshots, per-worker SQLite connections, persistence, retention and exports |
-| `desktop.py`, `desktop_widgets.py`, `desktop_data.py` | Qt controls, scene editor, native charts, read-only history queries and PDF generation |
+| `desktop.py`, `desktop_widgets.py`, `desktop_design.py`, `desktop_data.py` | Qt workspaces, semantic design roles, scene editor, native charts, read-only history queries and PDF generation |
 | `cli.py`, `preview.py` | Existing command line and OpenCV preview |
 
 Defaults: 1280×720 camera request at 15 FPS, 640 model input, 8 inference FPS per
@@ -211,7 +231,8 @@ python -m pip check
 
 Tests cover real recorded-video/ONNX inference, capture backpressure, tracking,
 scene validation, directional counts, traffic metrics, SQLite persistence and Qt
-integration. Missing weights cause model tests to skip; tests never download
+integration, keyboard geometry undo, appearance contrast, nonblocking pause/resume,
+source/session comparison safety, minimum/wide window layouts and 2× scale. Missing weights cause model tests to skip; tests never download
 weights. The camera test is opt-in and excluded from CI. Recorded/mocked tests
 are not physical-camera validation. CI definitions are provided; hosted CI status must be checked on [GitHub Actions](https://github.com/siddhantkrishna/roadlens/actions).
 The manual packaging workflow verifies a bundle on an ephemeral Intel runner and

@@ -1,0 +1,597 @@
+"""Native Hallmark gates and interactions; public fixtures, never physical cameras."""
+
+import pytest
+from test_desktop import qt_app as qt_app
+from test_desktop import window as window
+
+from roadlens.desktop_design import LIGHT, contrast
+
+
+def test_light_tokens_cover_text_fields_and_focus_contrast():
+    for role in ("text", "muted"):
+        for surface in ("background", "surface", "raised"):
+            assert contrast(LIGHT[role], LIGHT[surface]) >= 4.5
+    for role in ("border", "focus", "chart"):
+        assert contrast(LIGHT[role], LIGHT["surface"]) >= 3
+    assert contrast(LIGHT["accent"], LIGHT["accent_ink"]) >= 4.5
+
+
+def test_dark_tokens_have_full_contrast_parity():
+    from roadlens.desktop_design import DARK
+
+    assert DARK.keys() == LIGHT.keys()
+    for role in ("text", "muted"):
+        for surface in ("background", "surface", "raised"):
+            assert contrast(DARK[role], DARK[surface]) >= 4.5
+    for role in ("border", "focus", "chart"):
+        assert contrast(DARK[role], DARK["surface"]) >= 3
+    assert contrast(DARK["accent"], DARK["accent_ink"]) >= 4.5
+
+
+def test_svg_icons_render_for_every_action():
+    from PySide6.QtWidgets import QApplication
+
+    from roadlens.desktop_design import PATHS, icon
+
+    app = QApplication.instance() or QApplication([])
+    assert app
+    for name in PATHS:
+        assert not icon(name, LIGHT["text"]).pixmap(36, 36).isNull()
+
+
+def test_focus_outline_preserves_input_dimensions():
+    from PySide6.QtWidgets import QApplication, QLineEdit, QVBoxLayout, QWidget
+
+    from roadlens.desktop_design import FocusOutline, apply_appearance
+
+    app = QApplication.instance() or QApplication([])
+    window = QWidget()
+    form = QVBoxLayout(window)
+    first, second = QLineEdit(), QLineEdit()
+    form.addWidget(first)
+    form.addWidget(second)
+    outline = FocusOutline(window)
+    apply_appearance(window)
+    window.show()
+    app.processEvents()
+    before = first.size()
+    second.setFocus()
+    first.setFocus()
+    app.processEvents()
+    assert outline.frame.widget() == first
+    assert first.size() == before
+    window.close()
+
+
+def test_video_onboarding_reads_a_real_frame_before_start(tmp_path):
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+    from test_desktop import spin
+
+    from roadlens.config import SourceConfig
+    from roadlens.desktop import DesktopWindow, default_config
+
+    app = QApplication.instance() or QApplication([])
+    window = DesktopWindow(default_config(tmp_path), tmp_path)
+    video = Path(__file__).resolve().parents[1] / "assets/traffic.avi"
+    window.add_source(SourceConfig("Recording", "video", str(video), False))
+    spin(app, lambda: not window.jobs)
+    assert not window.pipelines
+    assert not window.panes["Recording"].raw_image.isNull()
+    window.close()
+
+
+@pytest.mark.model
+def test_recorded_pause_resume_and_stop_keep_frame_integrity(model_path, vehicle_video):
+    import time
+    from pathlib import Path
+
+    from roadlens.config import Config, SourceConfig
+    from roadlens.pipeline import Pipeline
+
+    root = Path(__file__).resolve().parents[1]
+    source = SourceConfig("Video", "video", str(root / "assets/traffic.avi"), False)
+    config = Config(model=model_path)
+    pipeline = Pipeline(source, config)
+    pipeline.set_paused(True)
+    pipeline.start()
+    time.sleep(0.1)
+    assert pipeline.processed == 0
+    pipeline.set_paused(False)
+    pipeline.join(20)
+    assert pipeline.done.is_set() and pipeline.processed == 12 and not pipeline.error
+    assert pipeline.capture.frames.dropped == 0
+    stopped = Pipeline(source, config)
+    stopped.set_paused(True)
+    stopped.start()
+    stopped.stop()
+    stopped.join(10)
+    assert stopped.done.is_set() and not stopped.error
+
+
+def test_compact_desktop_overlay_leaves_header_and_footer_unpainted(monkeypatch):
+    import numpy as np
+
+    from roadlens.pipeline import annotate
+    from roadlens.tracking import Track
+
+    labels = []
+    import cv2
+
+    original = cv2.putText
+
+    def record(canvas, text, *args):
+        labels.append(text)
+        return original(canvas, text, *args)
+
+    monkeypatch.setattr(cv2, "putText", record)
+    canvas = annotate(
+        np.zeros((360, 640, 3), np.uint8),
+        [Track(12, 2, 0.87, (100, 100, 200, 200), (0, 0), (0, 0), ())],
+        "long source",
+        3,
+        "technical diagnostics",
+        compact=True,
+    )
+    assert labels == ["Car 12"]
+    assert not canvas[:40].any() and not canvas[-40:].any()
+
+
+def test_geometry_visibility_is_independent_of_real_analysis(window):
+    from roadlens.config import SourceConfig
+
+    window.geometry_action.setChecked(False)
+    window.add_source(SourceConfig("Unopened camera", "camera", "unit-device-id"))
+    assert not window.panes["Unopened camera"].preview.show_geometry
+    window.geometry_action.setChecked(True)
+    assert window.panes["Unopened camera"].preview.show_geometry
+    assert not window.pipelines
+
+
+@pytest.mark.model
+def test_monitor_flow_uses_selected_line_without_combining_lines(window, qt_app, model_path):
+    from dataclasses import replace
+    from pathlib import Path
+
+    from test_desktop import spin
+
+    from roadlens.config import SourceConfig
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    root = Path(__file__).resolve().parents[1]
+    scene = Scene.load(root / "assets/traffic.scene.json")
+    scene = scene.with_line(CountingLine("second", (0.1, 0.8), (0.9, 0.8)))
+    path = window.data_dir / "two-lines.json"
+    scene.save(path)
+    window.config = replace(window.config, model=model_path)
+    window.add_source(
+        SourceConfig("Two lines", "video", str(root / "assets/traffic.avi"), False, str(path))
+    )
+    spin(qt_app, lambda: not window.jobs)
+    window.start_all()
+    spin(qt_app, lambda: not window.any_active())
+    window.tick()
+    spin(qt_app, lambda: not window.jobs)
+    window.refresh_history()
+    spin(qt_app, lambda: not window.jobs)
+    assert window.monitor_line.count() == 2
+    for index in range(2):
+        window.monitor_line.setCurrentIndex(index)
+        line = window.monitor_line.currentData()
+        rates = window.report_data["windows"][-1]["flow_per_minute"]
+        expected = sum(v for key, v in rates.items() if key.split("/")[0] == line and v is not None)
+        assert window.metrics["Traffic flow"].text() == f"{expected:.1f}"
+
+
+def test_counting_tool_draws_and_saves_without_geometry_fields(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    editor = SceneEditor(Scene(), image())
+    editor.show()
+    qt_app.processEvents()
+    editor.count_tool.click()
+    for point in ((0.1, 0.5), (0.9, 0.5)):
+        QTest.mouseClick(
+            editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped(point).toPoint()
+        )
+    editor.buttons.button(QDialogButtonBox.StandardButton.Save).click()
+    assert editor.result() == QDialog.DialogCode.Accepted and len(editor.scene.lines) == 1
+    editor.close()
+
+
+@pytest.fixture(autouse=True)
+def stable_qt_lifetime(qt_app):
+    """macOS Qt must retain one QApplication across the complete UI test session."""
+    yield qt_app
+
+
+def test_road_tool_saves_a_real_validated_polygon(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    editor = SceneEditor(Scene(), image())
+    editor.show()
+    qt_app.processEvents()
+    editor.road_tool.click()
+    for point in ((0.1, 0.1), (0.8, 0.1), (0.8, 0.8)):
+        QTest.mouseClick(
+            editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped(point).toPoint()
+        )
+    editor.save()
+    assert len(editor.scene.zones) == 1 and editor.scene.zones[0].kind == "road"
+    assert editor.scene.zones[0].contains((0.7, 0.2))
+    editor.close()
+
+
+def test_scene_shape_selection_and_drag_use_letterboxed_coordinates(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    scene = Scene(lines=(CountingLine("line", (0.1, 0.5), (0.9, 0.5)),))
+    editor = SceneEditor(scene, image())
+    editor.show()
+    qt_app.processEvents()
+    QTest.mouseClick(
+        editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped((0.5, 0.5)).toPoint()
+    )
+    assert editor.selected == ("lines", "line")
+    start = editor.canvas.mapped((0.1, 0.5)).toPoint()
+    end = editor.canvas.mapped((0.2, 0.6)).toPoint()
+    QTest.mousePress(editor.canvas, Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(editor.canvas, end)
+    QTest.mouseRelease(editor.canvas, Qt.MouseButton.LeftButton, pos=end)
+    assert abs(editor.canvas.points[0][0] - 0.2) < 0.003
+    assert abs(editor.canvas.points[0][1] - 0.6) < 0.003
+    editor.close()
+
+
+def test_scene_undo_restores_deleted_geometry_and_cancel_keeps_original(qt_app):
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    scene = Scene(lines=(CountingLine("line", (0.1, 0.5), (0.9, 0.5)),))
+    editor = SceneEditor(scene, image())
+    editor.select_geometry(0)
+    editor.delete()
+    assert not editor.scene.lines
+    editor.undo()
+    assert editor.scene == scene
+    editor.reject()
+    assert scene.lines[0].id == "line"
+    editor.close()
+
+
+def test_scene_load_failure_is_visible_and_preserves_geometry(qt_app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import CountingLine, Scene
+
+    original = Scene(lines=(CountingLine("line", (0.1, 0.5), (0.9, 0.5)),))
+    bad = tmp_path / "invalid.json"
+    bad.write_text('{"version": 999}')
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a: (str(bad), ""))
+    editor = SceneEditor(original, image())
+    editor.load_scene()
+    assert editor.scene == original and editor.status.property("error")
+    editor.count_tool.click()
+    editor.canvas.points = [(0.1, 0.5)]
+    editor.save()
+    assert not editor.result() and len(editor.canvas.points) == 1
+    editor.close()
+
+
+def test_calibration_changes_validate_and_survive_geometry_apply(qt_app):
+    import json
+    from dataclasses import asdict
+
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Calibration, Scene
+
+    editor = SceneEditor(Scene(), image())
+    calibration = Calibration(
+        ((0, 0), (1, 0), (1, 1), (0, 1)), ((0, 0), (10, 0), (10, 10), (0, 10)), (640, 360), True
+    )
+    editor.calibration_edit.setPlainText(json.dumps(asdict(calibration)))
+    editor.canvas.points = [(0, 0), (1, 0), (1, 1)]
+    assert editor.apply_geometry()
+    editor.save()
+    assert editor.scene.calibration == calibration
+    invalid = SceneEditor(Scene(), image())
+    invalid.calibration_edit.setPlainText('{"verified": true}')
+    invalid.save()
+    assert invalid.result() != 1 and "Calibration" in invalid.status.text()
+    editor.close()
+    invalid.close()
+
+
+def test_heatmap_legend_distinguishes_missing_zero_and_observed_dwell(qt_app):
+    from roadlens.desktop_widgets import HeatmapLegend
+
+    legend = HeatmapLegend()
+    for value in (None, 0, 0.083333):
+        legend.set_scale(value)
+        assert legend.scale_max == value
+        assert not legend.grab().isNull()
+    assert "0.0833" in legend.accessibleDescription()
+    legend.close()
+
+
+def test_event_records_show_real_units_and_handle_unreadable_details():
+    import json
+
+    from roadlens.desktop_data import event_row
+
+    record = {
+        "kind": "queue_started",
+        "source_time": 4.5,
+        "object_id": "road",
+        "category": None,
+        "direction": None,
+        "details_json": json.dumps({"vehicles": 4}),
+    }
+    assert event_row(record)[1] == "Queue formed"
+    assert event_row(record)[4] == "4 vehicles in the queue"
+    record.update(kind="observation_gap", details_json=json.dumps({"seconds": 2.5}))
+    assert "2.5 s" in event_row(record)[4]
+    record["details_json"] = "invalid"
+    assert "could not be read" in event_row(record)[4]
+
+
+def test_session_comparison_uses_only_matching_observed_sessions(window, qt_app):
+    from dataclasses import asdict
+    from pathlib import Path
+
+    from test_desktop import spin
+
+    from roadlens.desktop_data import read_history
+    from roadlens.traffic.models import AnalysisUpdate, TrafficEvent, TrafficSnapshot
+    from roadlens.traffic.scene import CountingLine, Scene
+    from roadlens.traffic.store import TrafficStore
+
+    spin(qt_app, lambda: not window.jobs)
+    path = Path(window.config.analytics.database)
+    scene = Scene(lines=(CountingLine("one", (0, 0.5), (1, 0.5)),))
+    snapshot = TrafficSnapshot(1, (), True, (), (), "no calibration", 0, False)
+    with TrafficStore(path) as store:
+        sessions = []
+        for key, fingerprint in (
+            ("same", "same"),
+            ("same", "same"),
+            ("other", "same"),
+            ("same", "different"),
+        ):
+            session = store.start_session(
+                "camera", "Camera", {}, asdict(scene), key, "video_seconds", fingerprint
+            )
+            store.write(
+                session,
+                AnalysisUpdate(
+                    snapshot, (TrafficEvent("one", "crossing", 1, "one", "car", "forward"),)
+                ),
+            )
+            store.finish_session(session, "completed")
+            sessions.append(session)
+    window.tabs.setCurrentIndex(1)
+    window.history_request += 1
+    window.history_loaded((window.history_request, read_history(path, session=sessions[0])))
+    assert window.compare_selector.count() == 2
+    window.compare_selector.setCurrentIndex(1)
+    spin(qt_app, lambda: not window.jobs)
+    assert "1 in this session" in window.comparison_status.text()
+    assert "1 in the comparison" in window.comparison_status.text()
+    window.history_camera.setText("absent")
+    window.reset_history()
+    spin(qt_app, lambda: not window.jobs)
+    assert window.analysis_empty.isVisible() and not window.analysis_scroll.isVisible()
+
+
+def test_camera_preferences_do_not_claim_unopened_hardware_is_connected(window):
+
+    window.cameras_discovered([{"id": "unit-id", "name": "Unit camera", "type": "External"}])
+    window.add_camera()
+    window.update_camera_summary()
+    assert "Unit camera" in window.camera_summary.text()
+    assert "Last received format" not in window.camera_summary.text()
+    assert "Measured capture" not in window.camera_summary.text()
+    assert not window.pipelines
+    assert window.selected_source().value == "unit-id"
+
+
+def test_processing_budget_uses_saved_values_and_reports_measured_memory(window):
+    from dataclasses import replace
+
+    window.config = replace(window.config, threads=3, inference_fps=5.5)
+    window.populate_settings()
+    assert "3 CPU threads" in window.performance_summary.text()
+    assert "5.5 analyses/s" in window.performance_summary.text()
+    window.tabs.setCurrentIndex(2)
+    window.diagnostic_section.toggle.setChecked(True)
+    window.diagnostics.clearFocus()
+    window.update_diagnostics()
+    assert "Measured peak process memory" in window.diagnostics.toPlainText()
+
+
+def test_workspace_focus_and_native_preferences_shortcuts(window, qt_app):
+    from PySide6.QtGui import QAction
+
+    window.open_preferences()
+    qt_app.processEvents()
+    assert window.tabs.currentIndex() == 2 and window.appearance.hasFocus()
+    window.focus_source()
+    qt_app.processEvents()
+    assert window.tabs.currentIndex() == 0
+    preferences = next(a for a in window.findChildren(QAction) if a.text() == "Settings…")
+    assert preferences.menuRole() == QAction.MenuRole.PreferencesRole
+    window.nav_buttons[1].click()
+    assert window.tabs.currentIndex() == 1 and window.nav_buttons[1].isChecked()
+    window.nav_buttons[1].click()
+    assert window.nav_buttons[1].isChecked()
+
+
+@pytest.mark.parametrize("size", [(880, 650), (1280, 800), (1920, 1080)])
+def test_native_workspaces_resize_without_horizontal_clipping(window, qt_app, size):
+    window.resize(*size)
+    for index in range(3):
+        window.tabs.setCurrentIndex(index)
+        qt_app.processEvents()
+        assert window.minimumSizeHint().width() <= window.width()
+        assert window.minimumSizeHint().height() <= window.height()
+        assert window.tabs.width() <= 1640
+    assert window.width() == size[0]
+
+
+def test_scene_keyboard_deletion_and_nudging_are_reversible(qt_app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from test_desktop import image
+
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    editor = SceneEditor(Scene(), image())
+    original = [(0.1, 0.1), (0.8, 0.1), (0.8, 0.8)]
+    editor.canvas.points = list(original)
+    editor.canvas.drag = 2
+    QTest.keyClick(editor.canvas, Qt.Key.Key_Backspace)
+    assert len(editor.canvas.points) == 2
+    editor.undo()
+    assert editor.canvas.points == original
+    editor.canvas.drag = 0
+    QTest.keyClick(editor.canvas, Qt.Key.Key_Right)
+    editor.undo()
+    assert editor.canvas.points == original
+    editor.close()
+
+
+def test_two_times_display_scaling_keeps_image_coordinates_and_pixel_density():
+    import os
+    import subprocess
+    import sys
+
+    script = """
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QImage, QColor
+from PySide6.QtWidgets import QApplication
+from roadlens.desktop_widgets import Preview
+app = QApplication([])
+preview = Preview()
+preview.resize(800, 600)
+image = QImage(640, 360, QImage.Format.Format_RGB32)
+image.fill(QColor(40, 50, 40))
+preview.set_image(image)
+preview.show()
+app.processEvents()
+point = (0.25, 0.75)
+assert preview.normalized(preview.mapped(point)) == point
+pixmap = preview.grab()
+assert pixmap.devicePixelRatio() == 2
+assert pixmap.width() == 2 * preview.width()
+preview.close()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_SCALE_FACTOR": "2"},
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_monitor_configuration_saves_real_preview_geometry(window, qt_app):
+    from pathlib import Path
+
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication, QDialogButtonBox
+    from test_desktop import spin
+
+    from roadlens.config import SourceConfig
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    source = SourceConfig(
+        "Road recording",
+        "video",
+        str(Path(__file__).resolve().parents[1] / "assets/traffic.avi"),
+        False,
+    )
+    window.add_source(source)
+    spin(qt_app, lambda: not window.jobs)
+
+    def draw():
+        editor = QApplication.activeModalWidget()
+        assert isinstance(editor, SceneEditor)
+        assert not editor.clean_image.isNull()
+        editor.count_tool.click()
+        for point in ((0.1, 0.5), (0.9, 0.5)):
+            QTest.mouseClick(
+                editor.canvas, Qt.MouseButton.LeftButton, pos=editor.canvas.mapped(point).toPoint()
+            )
+        editor.buttons.button(QDialogButtonBox.StandardButton.Save).click()
+
+    QTimer.singleShot(30, draw)
+    window.edit_scene()
+    configured = window.selected_source()
+    scene = Scene.load(Path(configured.scene))
+    assert len(scene.lines) == 1
+    assert window.panes[source.name].preview.scene == scene
+    assert not window.test_errors
+
+
+def test_native_polish_keeps_brand_separate_and_content_expanded(window, qt_app):
+    from PySide6.QtWidgets import QLabel
+
+    from roadlens.desktop_design import DARK, LIGHT, colors_for
+
+    window.resize(1280, 850)
+    qt_app.processEvents()
+    brand = next(w for w in window.findChildren(QLabel, "brand") if w.text() == "ROADLENS")
+    assert brand.geometry().right() < window.nav_buttons[0].geometry().left()
+    assert window.tabs.width() == window.centralWidget().width()
+    for name, expected in (("Light", LIGHT), ("Dark", DARK)):
+        window.appearance.setCurrentText(name)
+        assert colors_for(window.chart) is expected
+        assert colors_for(window.condition_chart) is expected
+
+
+def test_checkbox_indicator_and_active_scene_mode_are_explicit(qt_app):
+    from test_desktop import image
+
+    from roadlens.desktop_design import CheckBox
+    from roadlens.desktop_widgets import SceneEditor
+    from roadlens.traffic.scene import Scene
+
+    box = CheckBox("Show values")
+    box.show()
+    off = box.grab().toImage()
+    box.setChecked(True)
+    on = box.grab().toImage()
+    assert off != on and box.isChecked()
+    editor = SceneEditor(Scene(), image())
+    assert editor.road_tool.isChecked() and not editor.count_tool.isChecked()
+    editor.count_tool.click()
+    assert editor.count_tool.isChecked() and not editor.road_tool.isChecked()
+    editor.close()
+    box.close()

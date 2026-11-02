@@ -14,10 +14,11 @@ from pathlib import Path
 
 import cv2
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices, QFont, QImage
+from PySide6.QtGui import QAction, QDesktopServices, QImage, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
@@ -25,7 +26,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -38,9 +38,9 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -49,41 +49,35 @@ from PySide6.QtWidgets import (
 from roadlens.cameras import list_cameras
 from roadlens.cli import configure_logging
 from roadlens.config import Config, SourceConfig, load_config
-from roadlens.desktop_data import export_pdf, heatmap_image, qimage, read_history
-from roadlens.desktop_widgets import FlowChart, Preview, SceneEditor, scene_for_source
+from roadlens.desktop_data import (
+    comparable_sessions,
+    event_row,
+    export_pdf,
+    heatmap_image,
+    qimage,
+    read_history,
+)
+from roadlens.desktop_design import (
+    CheckBox,
+    FocusOutline,
+    Foldout,
+    apply_appearance,
+    font,
+    heading,
+    label,
+)
+from roadlens.desktop_widgets import (
+    ClassificationChart,
+    FlowChart,
+    HeatmapLegend,
+    Preview,
+    SceneEditor,
+    scene_for_source,
+)
 from roadlens.traffic.models import AnalyticsConfig
 from roadlens.traffic.store import TrafficStore
 
 LOG = logging.getLogger(__name__)
-STYLE = """
-QMainWindow, QDialog { background: #0e1c25; color: #e8f1f5; }
-QWidget { font-size: 13px; }
-QLabel, QGroupBox { color: #dce9ef; }
-QLabel#brand { font-size: 26px; font-weight: 800; color: #64e0c2; }
-QLabel#subtitle { color: #96adb9; }
-QLabel#metric { font-size: 23px; font-weight: 700; color: #70e2c5; }
-QFrame#card, QGroupBox { background: #152934; border: 1px solid #2b424d;
-    border-radius: 8px; padding: 8px; }
-QGroupBox { margin-top: 12px; }
-QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }
-QPushButton { color: #e6f1f4; background: #243d4a; border: 1px solid #3b5663;
-    border-radius: 5px; padding: 7px 12px; }
-QPushButton:hover { background: #315566; }
-QPushButton:disabled { color: #7a919c; background: #1b2d37; }
-QPushButton#primary { background: #18745f; border-color: #35b297; }
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QListWidget, QTextEdit, QTableWidget {
-    color: #e7f0f4; background: #11232d; border: 1px solid #36505d;
-    border-radius: 4px; padding: 5px; selection-background-color: #236b64; }
-QListWidget::item { padding: 9px 3px; }
-QHeaderView::section { background: #253d48; color: #bcd0da; padding: 7px; border: 0; }
-QTableWidget { gridline-color: #29404b; }
-QTabWidget::pane { border: 1px solid #2b414d; background: #0e1c25; }
-QTabBar::tab { background: #1a303c; color: #acbfca; padding: 10px 24px; }
-QTabBar::tab:selected { color: #72e8cb; background: #25434e; }
-QScrollArea { border: 0; background: #0e1c25; }
-QStatusBar { color: #afc6d0; background: #132630; }
-QToolTip { color: #ffffff; background: #213f4b; border: 1px solid #5a7b8a; }
-"""
 
 
 def default_config(data_dir: Path) -> Config:
@@ -148,8 +142,8 @@ def table(headers):
     widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     widget.horizontalHeader().setStretchLastSection(True)
     widget.horizontalHeader().setMinimumSectionSize(72)
-    for index, heading in enumerate(headers):
-        widget.setColumnWidth(index, max(80, widget.fontMetrics().horizontalAdvance(heading) + 30))
+    for index, title in enumerate(headers):
+        widget.setColumnWidth(index, max(80, widget.fontMetrics().horizontalAdvance(title) + 30))
     widget.setWordWrap(False)
     widget.setTextElideMode(Qt.TextElideMode.ElideRight)
     widget.verticalHeader().hide()
@@ -157,6 +151,8 @@ def table(headers):
     widget.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     widget.setAlternatingRowColors(False)
+    widget.verticalHeader().setDefaultSectionSize(34)
+    widget.setShowGrid(False)
     return widget
 
 
@@ -186,19 +182,29 @@ def fill_table(widget, rows):
 class SourcePane(QFrame):
     def __init__(self, source):
         super().__init__()
-        self.setObjectName("card")
+        self.setObjectName("sourcePane")
         layout = QVBoxLayout(self)
         self.title = QLabel(source.name)
-        self.title.setFont(QFont("Helvetica", 14, QFont.Weight.Bold))
+        self.title.setFont(font("section", bold=True))
+        self.title.setTextFormat(Qt.TextFormat.PlainText)
         self.title.setWordWrap(True)
         self.title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.title.setToolTip(source.name)
         layout.addWidget(self.title)
         self.preview = Preview()
         layout.addWidget(self.preview, 1)
-        self.status = QLabel("Stopped • no camera opened")
+        self.status = QLabel("Ready")
+        self.raw_image = QImage()
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
-        layout.addWidget(self.status)
+        self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        state_row = QHBoxLayout()
+        state_row.addWidget(self.status, 1)
+        self.progress = label("", "muted")
+        self.progress.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.progress.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
+        state_row.addWidget(self.progress)
+        layout.addLayout(state_row)
 
 
 class DesktopWindow(QMainWindow):
@@ -223,13 +229,25 @@ class DesktopWindow(QMainWindow):
         self.last_read_error = None
         self.last_diagnostic = 0.0
         self.settings_changed = set()
-        self.setWindowTitle("ROADLENS • Local traffic intelligence")
-        self.resize(1380, 940)
-        self.setMinimumSize(1040, 720)
-        self.setStyleSheet(STYLE)
+        self.draw_geometry = True
+        self.setWindowTitle("ROADLENS")
+        self.resize(1280, 850)
+        self.setMinimumSize(880, 650)
+        apply_appearance(self)
         self.build_ui()
+        self.focus_outline = FocusOutline(self)
         self.sync_sources()
         self.populate_settings()
+        appearance = "System"
+        try:
+            appearance = json.loads((self.data_dir / "appearance.json").read_text())["appearance"]
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        self.appearance.setCurrentText(
+            appearance if appearance in ("System", "Light", "Dark") else "System"
+        )
+        self.change_appearance(self.appearance.currentText(), persist=False)
+        QApplication.styleHints().colorSchemeChanged.connect(self.system_appearance_changed)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(60)
@@ -237,63 +255,133 @@ class DesktopWindow(QMainWindow):
         self.history_timer.timeout.connect(self.refresh_history)
         self.history_timer.start(2000)
         self.refresh_history()
+        for source in self.sources:
+            if source.kind == "video":
+                self.load_video_preview(source)
+        self.source_selector.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def build_ui(self):
         content = QWidget()
         outer = QVBoxLayout(content)
-        outer.setContentsMargins(20, 16, 20, 12)
-        header = QHBoxLayout()
-        brand = QLabel("ROADLENS")
-        brand.setObjectName("brand")
-        header.addWidget(brand)
-        subtitle = QLabel("TRAFFIC INTELLIGENCE  /  ON THIS MAC")
-        subtitle.setObjectName("subtitle")
-        header.addWidget(subtitle)
-        header.addStretch()
-        self.global_status = QLabel("Ready • local CPU inference")
-        header.addWidget(self.global_status)
-        outer.addLayout(header)
-        self.tabs = QTabWidget()
-        outer.addWidget(self.tabs)
-        self.tabs.currentChanged.connect(self.refresh_history)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        chrome = QWidget()
+        chrome.setObjectName("page")
+        navigation = QHBoxLayout(chrome)
+        navigation.setContentsMargins(28, 8, 28, 0)
+        navigation.setSpacing(8)
+        brand = label("ROADLENS", "brand")
+        brand.setMinimumWidth(132)
+        brand.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        navigation.addWidget(brand)
+        self.tabs = QStackedWidget()
+        self.nav_buttons = []
+        self.navigation_group = QButtonGroup(self)
+        for index, title in enumerate(("Monitor", "Analysis", "Settings")):
+            button = QPushButton(title)
+            navigation.addWidget(button)
+            button.setObjectName("navigation")
+            button.setCheckable(True)
+            button.setAccessibleName(f"Open {title}")
+            self.navigation_group.addButton(button, index)
+            self.nav_buttons.append(button)
+        self.navigation_group.idClicked.connect(self.tabs.setCurrentIndex)
+        navigation.addStretch()
+        self.global_status = label("Ready", "muted")
+        self.global_status.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.global_status.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        navigation.addWidget(self.global_status)
+        chrome.setMaximumWidth(1640)
+        self.tabs.setMaximumWidth(1640)
+        chrome_row = QHBoxLayout()
+        chrome_row.addWidget(chrome, 1)
+        content_row = QHBoxLayout()
+        content_row.addWidget(self.tabs, 1)
+        outer.addLayout(chrome_row)
+        outer.addLayout(content_row, 1)
         self.build_monitor()
         self.build_history()
         self.build_settings()
+        self.tabs.currentChanged.connect(self.navigate)
         self.setCentralWidget(content)
+        self.navigate(0)
         file_menu = self.menuBar().addMenu("File")
-        for label, shortcut, callback in (
-            ("Import video…", "Ctrl+O", self.import_video),
-            ("Import TOML configuration…", "", self.import_config),
-            ("Export selected session…", "Ctrl+E", self.export_session),
-            ("Close", "Ctrl+W", self.close),
+        for title, shortcut, callback in (
+            ("Import video…", QKeySequence.StandardKey.Open, self.import_video),
+            ("Import configuration…", None, self.import_config),
+            ("Export session…", "Ctrl+E", self.export_session),
+            ("Close", QKeySequence.StandardKey.Close, self.close),
         ):
-            action = QAction(label, self)
+            action = QAction(title, self)
             if shortcut:
                 action.setShortcut(shortcut)
             action.triggered.connect(callback)
             file_menu.addAction(action)
+        playback = self.menuBar().addMenu("Playback")
+        for title, shortcut, callback in (
+            ("Start / Pause / Resume", "Ctrl+R", self.toggle_playback),
+            ("Stop", "Ctrl+.", self.stop_selected),
+            ("Start all sources", "Ctrl+Shift+R", self.start_all),
+            ("Stop all sources", "Ctrl+Shift+.", self.stop_all),
+        ):
+            action = playback.addAction(title)
+            action.setShortcut(shortcut)
+            action.triggered.connect(callback)
+        for index, button in enumerate(self.nav_buttons):
+            action = QAction(button.text(), self)
+            action.setShortcut(f"Ctrl+{index + 1}")
+            action.setData(index)
+            action.triggered.connect(self.activate_workspace_action)
+            self.addAction(action)
+        preferences = QAction("Settings…", self)
+        preferences.setMenuRole(QAction.MenuRole.PreferencesRole)
+        preferences.setShortcut("Ctrl+,")
+        preferences.triggered.connect(self.open_preferences)
+        self.menuBar().addAction(preferences)
+        focus_source = QAction("Select source", self)
+        focus_source.setShortcut("Ctrl+L")
+        focus_source.triggered.connect(self.focus_source)
+        self.addAction(focus_source)
+        view_menu = self.menuBar().addMenu("View")
+        self.geometry_action = view_menu.addAction("Show road geometry")
+        self.geometry_action.setCheckable(True)
+        self.geometry_action.setChecked(True)
+        self.geometry_action.toggled.connect(self.set_geometry_visible)
         help_menu = self.menuBar().addMenu("Help")
-        action = help_menu.addAction("Camera permissions and Continuity Camera")
-        action.triggered.connect(self.camera_help)
-        action = help_menu.addAction("Open source license")
-        action.triggered.connect(self.open_license)
-        action = help_menu.addAction("About ROADLENS")
-        action.triggered.connect(
+        help_menu.addAction("Camera permissions", self.camera_help)
+        help_menu.addAction("Open source license", self.open_license)
+        help_menu.addAction(
+            "About ROADLENS",
             lambda: QMessageBox.about(
                 self,
                 "About ROADLENS",
-                "ROADLENS 0.1.0\nCopyright (C) 2026 ROADLENS contributors\n"
-                "AGPL-3.0-only. You may copy, modify and redistribute under that license.\n"
-                "Provided WITHOUT ANY WARRANTY. Help → Open source license shows the terms.\n"
+                "ROADLENS 0.1.0\nLocal traffic intelligence\n\n"
+                "Copyright (C) 2026 ROADLENS contributors. AGPL-3.0-only.\n"
+                "You may copy, modify and redistribute under that license.\n"
+                "Provided WITHOUT ANY WARRANTY. See Help → Open source license.\n\n"
                 "PySide6 / OpenCV DNN / ByteTrack / SQLite\n"
-                "No cloud inference. Model: Ultralytics YOLOv8n (AGPL-3.0/commercial).\n"
-                "PySide6/Qt: LGPLv3/GPLv3/commercial. See bundled licenses.",
-            )
+                "Model: Ultralytics YOLOv8n (AGPL-3.0/commercial).\n"
+                "Qt: LGPLv3/GPLv3/commercial. See bundled licenses.",
+            ),
         )
-        self.statusBar().showMessage(f"Database: {self.config.analytics.database}")
+        self.statusBar().showMessage("Choose a source to begin.")
 
     def button(self, title, callback, layout, *, primary=False):
         button = QPushButton(title)
+        glyph = {
+            "Import video…": "import",
+            "Import video": "import",
+            "Start selected": "play",
+            "Start": "play",
+            "Pause": "pause",
+            "Stop": "stop",
+            "Stop selected": "stop",
+            "Configure scene…": "road",
+            "Configure road": "road",
+            "Sources…": "camera",
+        }.get(title)
+        if glyph:
+            button.setProperty("iconName", glyph)
         button.clicked.connect(callback)
         if primary:
             button.setObjectName("primary")
@@ -301,209 +389,476 @@ class DesktopWindow(QMainWindow):
         return button
 
     def build_monitor(self):
-        page = QWidget()
-        layout = QHBoxLayout(page)
-        side = QVBoxLayout()
-        layout.addLayout(side, 1)
-        side.addWidget(QLabel("SOURCES"))
-        self.source_list = QListWidget()
-        self.source_list.setMinimumWidth(190)
-        self.source_list.setMaximumWidth(280)
-        self.source_list.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.source_list.setAccessibleName("Sources; selected source drives live statistics")
-        self.source_list.currentRowChanged.connect(self.selection_changed)
-        side.addWidget(self.source_list, 1)
-        self.camera_selector = QComboBox()
-        self.camera_selector.setAccessibleName("Discovered MacBook and iPhone cameras")
-        side.addWidget(self.camera_selector)
-        self.discover_button = self.button("Discover cameras", self.discover_cameras, side)
-        self.button("Add selected camera", self.add_camera, side)
-        self.button("Import video…", self.import_video, side)
-        self.start_button = self.button("Start selected", self.start_selected, side, primary=True)
-        self.button("Start all", self.start_all, side)
-        self.stop_button = self.button("Stop selected", self.stop_selected, side)
-        self.button("Stop all", self.stop_all, side)
-        self.edit_button = self.button("Configure scene…", self.edit_scene, side)
-        self.remove_button = self.button("Remove source", self.remove_source, side)
-        hint = QLabel(
-            "Select a source for its counts.\nTwo feeds recommended on Intel.\n"
-            "Unconfigured zones/lines show unavailable metrics."
+        page, layout = self.page()
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
+        self.source_selector = QComboBox()
+        self.source_selector.setMinimumContentsLength(15)
+        self.source_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
-        hint.setWordWrap(True)
-        side.addWidget(hint)
-        main = QVBoxLayout()
-        layout.addLayout(main, 4)
+        self.source_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.source_selector.setAccessibleName("Selected camera or video")
+        self.source_selector.setPlaceholderText("Choose a camera or video")
+        self.source_selector.currentIndexChanged.connect(self.select_source_index)
+        toolbar.addWidget(self.source_selector, 1)
+        self.import_button = self.button("Import video", self.import_video, toolbar)
+        self.import_button.setProperty("iconName", "import")
+        self.camera_button = self.button("Sources…", self.manage_sources, toolbar)
+        self.camera_button.setProperty("iconName", "camera")
+        layout.addLayout(toolbar)
+        controls = QHBoxLayout()
+        self.start_button = self.button("Start", self.start_selected, controls, primary=True)
+        self.start_button.setProperty("iconName", "play")
+        self.pause_button = self.button("Pause", self.pause_selected, controls)
+        self.stop_button = self.button("Stop", self.stop_selected, controls)
+        self.stop_button.setProperty("iconName", "stop")
+        controls.addStretch()
+        self.show_all = CheckBox("All sources")
+        self.show_all.toggled.connect(self.selection_changed)
+        controls.addWidget(self.show_all)
+        self.edit_button = self.button("Configure road", self.edit_scene, controls)
+        self.edit_button.setProperty("iconName", "road")
+        layout.addLayout(controls)
         self.gallery_widget = QWidget()
-        self.gallery_widget.setStyleSheet("background: #0e1c25;")
+        self.gallery_widget.setObjectName("page")
         self.gallery = QGridLayout(self.gallery_widget)
-        self.empty = QLabel(
-            "Add a camera or import a video to begin.\nCamera discovery never starts capture."
+        self.gallery.setContentsMargins(0, 0, 0, 0)
+        self.gallery.setSpacing(12)
+        self.empty = QWidget()
+        empty_layout = QVBoxLayout(self.empty)
+        empty_layout.addStretch()
+        empty_layout.addWidget(label("Your road, in focus", "pageTitle"))
+        empty_layout.addWidget(
+            label(
+                "Import a recording or connect a camera. Detection works straight away; "
+                "add a counting line or road area for traffic measurements.",
+                "muted",
+            )
         )
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_actions = QHBoxLayout()
+        self.button("Import a video…", self.import_video, empty_actions, primary=True)
+        self.button("Connect a camera…", self.manage_sources, empty_actions)
+        empty_actions.addStretch()
+        empty_layout.addLayout(empty_actions)
+        empty_layout.addStretch()
         self.gallery.addWidget(self.empty, 0, 0)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.gallery_widget)
-        main.addWidget(scroll, 4)
-        cards = QHBoxLayout()
+        layout.addWidget(scroll, 1)
+        strip = QFrame()
+        strip.setObjectName("metricStrip")
+        metrics = QHBoxLayout(strip)
+        metrics.setContentsMargins(0, 16, 0, 16)
         self.metrics = {}
-        for title in ("Visible tracks", "Crossing events", "Queued vehicles", "Congestion"):
-            card = QFrame()
-            card.setObjectName("card")
-            stack = QVBoxLayout(card)
-            stack.addWidget(QLabel(title.upper()))
-            value = QLabel("—")
-            value.setObjectName("metric")
-            value.setWordWrap(True)
-            value.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        for title, display in (
+            ("Crossing events", "Vehicles counted"),
+            ("Traffic flow", "Vehicles / min"),
+            ("Congestion", "Road conditions"),
+        ):
+            stack = QVBoxLayout()
+            stack.addWidget(label(display, "muted"))
+            value = label("—", "metric")
             value.setAccessibleName(title)
             stack.addWidget(value)
-            cards.addWidget(card)
+            metrics.addLayout(stack, 1)
             self.metrics[title] = value
-        main.addLayout(cards)
-        self.live_status = QLabel("No source selected")
-        self.live_status.setWordWrap(True)
-        main.addWidget(self.live_status)
+        layout.addWidget(strip)
+        self.monitor_hint = label("Import a video or connect a camera to get started.", "muted")
+        layout.addWidget(self.monitor_hint)
+        self.live_details = Foldout("Details")
+        self.live_status = label("No source selected", "muted")
+        self.live_details.body_layout.addWidget(self.live_status)
+        self.availability = label(
+            "Start a source to see which measurements are available.", "muted"
+        )
+        self.live_details.body_layout.addWidget(self.availability)
+        self.analysis_button = self.button(
+            "Open this session in Analysis",
+            self.open_current_analysis,
+            self.live_details.body_layout,
+        )
+        secondary = QHBoxLayout()
+        for title in ("Visible tracks", "Queued vehicles"):
+            secondary.addWidget(label(title, "muted"))
+            self.metrics[title] = label("—")
+            secondary.addWidget(self.metrics[title])
+            secondary.addStretch()
+        self.live_details.body_layout.addLayout(secondary)
+        flow_choice = QHBoxLayout()
+        flow_choice.addWidget(QLabel("Flow counting line"))
+        self.monitor_line = QComboBox()
+        self.monitor_line.setAccessibleName("Counting line used for the live flow rate")
+        self.monitor_line.currentIndexChanged.connect(self.update_flow_metric)
+        flow_choice.addWidget(self.monitor_line, 1)
+        self.live_details.body_layout.addLayout(flow_choice)
         details = QSplitter(Qt.Orientation.Horizontal)
         self.count_table = table(["Line", "Vehicle", "Direction", "Crossings"])
-        self.zone_table = table(["Zone", "Vehicles", "Image occupancy", "Queue", "Congestion"])
+        self.zone_table = table(["Area", "Vehicles", "Occupancy", "Queue", "Conditions"])
         details.addWidget(self.count_table)
         details.addWidget(self.zone_table)
-        main.addWidget(details, 2)
-        self.tabs.addTab(page, "Monitor")
+        details.setMaximumHeight(175)
+        self.live_details.body_layout.addWidget(details)
+        layout.addWidget(self.live_details)
+        self.tabs.addWidget(page)
+        self.build_sources_dialog()
 
     def build_history(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        page, layout = self.page()
+        heading(
+            layout, "Analysis", "Review recorded sessions and export the observations behind them."
+        )
         toolbar = QHBoxLayout()
-        self.history_camera = QLineEdit()
-        self.history_camera.setPlaceholderText("Exact camera name or ID; empty = all cameras")
-        self.history_camera.setAccessibleName("Filter session history by camera")
-        self.history_camera.returnPressed.connect(self.reset_history)
-        toolbar.addWidget(self.history_camera, 1)
-        self.button("Refresh / filter", self.reset_history, toolbar)
+        self.history_selector = QComboBox()
+        self.history_selector.setAccessibleName("Recorded session")
+        self.history_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.history_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.history_selector.currentIndexChanged.connect(self.select_history_index)
+        toolbar.addWidget(self.history_selector, 1)
         self.export_format = QComboBox()
         self.export_format.addItems(["PDF", "CSV", "JSON"])
-        self.export_format.setAccessibleName("Session export format")
+        self.export_format.setAccessibleName("Export format")
         toolbar.addWidget(self.export_format)
-        self.export_button = self.button("Export selected session…", self.export_session, toolbar)
-        self.heatmap_export_button = self.button(
-            "Export heatmap PNG…", self.export_heatmap, toolbar
-        )
+        self.export_button = self.button("Export…", self.export_session, toolbar, primary=True)
         layout.addLayout(toolbar)
-        self.sessions = table(["Camera", "Started (UTC)", "Status", "Clock", "Session"])
-        self.sessions.setMaximumHeight(200)
-        self.sessions.itemSelectionChanged.connect(self.history_selected)
-        layout.addWidget(self.sessions)
-        self.history_status = QLabel("No saved sessions yet")
-        self.history_status.setWordWrap(True)
+        export_feedback = QHBoxLayout()
+        self.export_status = label("", "muted")
+        self.export_status.hide()
+        export_feedback.addWidget(self.export_status, 1)
+        self.export_folder_button = self.button(
+            "Show export folder", self.show_export_folder, export_feedback
+        )
+        self.export_folder_button.hide()
+        layout.addLayout(export_feedback)
+        self.history_status = label(
+            "No saved sessions yet. Start a source in Monitor to create one.", "muted"
+        )
         layout.addWidget(self.history_status)
+        self.analysis_empty = label(
+            "No sessions recorded\n\n"
+            "Your sessions, flow charts and movement heatmaps will appear here after analysis.",
+            "pageTitle",
+        )
+        self.analysis_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.analysis_empty, 1)
+        self.analysis_content = QWidget()
+        self.analysis_content.setObjectName("page")
+        analysis = QVBoxLayout(self.analysis_content)
+        analysis.setContentsMargins(0, 0, 0, 0)
+        analysis.setSpacing(16)
+        self.analysis_summary = label("", "brand")
+        analysis.addWidget(self.analysis_summary)
         flow_controls = QHBoxLayout()
-        flow_controls.addWidget(QLabel("Flow series:"))
+        flow_controls.addWidget(QLabel("Directional flow"))
         self.flow_series = QComboBox()
-        self.flow_series.setAccessibleName(
-            "Counting line, direction and vehicle class for flow chart"
-        )
+        self.flow_series.setAccessibleName("Flow by counting line, direction and vehicle class")
         self.flow_series.currentTextChanged.connect(self.change_flow_series)
-        flow_controls.addWidget(self.flow_series, 1)
-        layout.addLayout(flow_controls)
-        charts = QHBoxLayout()
-        self.chart = FlowChart()
-        charts.addWidget(self.chart)
-        heatmap_box = QVBoxLayout()
-        self.heatmap = Preview()
-        heatmap_box.addWidget(self.heatmap, 1)
-        self.heatmap_caption = QLabel("Heatmap unavailable until observations are saved")
-        self.heatmap_caption.setWordWrap(True)
-        heatmap_box.addWidget(self.heatmap_caption)
-        charts.addLayout(heatmap_box)
-        layout.addLayout(charts, 2)
-        self.history_counts = table(["Line", "Vehicle", "Direction", "Crossings"])
-        self.history_counts.setMaximumHeight(135)
-        layout.addWidget(self.history_counts)
-        self.events = table(["Source time (s)", "Event / anomaly", "Object", "Vehicle", "Details"])
-        layout.addWidget(self.events, 1)
-        note = QLabel(
-            "Latest 200 sessions, 200 events and 240 measurement windows shown. "
-            "CSV/JSON include all records for the selected session. Rates use observed time; "
-            "camera overlap is not deduplicated."
+        self.flow_series.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.flow_series.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        self.tabs.addTab(page, "History and analysis")
+        flow_controls.addWidget(self.flow_series, 1)
+        analysis.addLayout(flow_controls)
+        charts = QGridLayout()
+        self.analysis_charts = charts
+        charts.setSpacing(16)
+        charts.setColumnStretch(0, 1)
+        charts.setColumnStretch(1, 1)
+        self.chart = FlowChart()
+        self.heatmap = Preview()
+        self.heatmap.empty_message = "No movement observations saved yet"
+        self.heatmap_caption = label("Vehicle movement", "muted")
+        heatmap_box = QVBoxLayout()
+        heatmap_box.addWidget(self.heatmap_caption)
+        heatmap_box.addWidget(self.heatmap, 1)
+        self.heatmap.setAccessibleName("Vehicle movement from observed dwell")
+        self.heatmap_legend = HeatmapLegend()
+        heatmap_box.addWidget(self.heatmap_legend)
+        charts.addWidget(self.chart, 0, 0)
+        charts.addLayout(heatmap_box, 0, 1)
+        self.classification_chart = ClassificationChart()
+        charts.addWidget(self.classification_chart, 1, 0)
+        conditions = QWidget()
+        condition_layout = QVBoxLayout(conditions)
+        condition_layout.setContentsMargins(0, 0, 0, 0)
+        condition_controls = QHBoxLayout()
+        self.condition_area = QComboBox()
+        self.condition_area.setAccessibleName("Road area for condition measurements")
+        self.condition_area.setMinimumContentsLength(7)
+        self.condition_area.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.condition_area.currentIndexChanged.connect(self.change_condition_series)
+        self.condition_metric = QComboBox()
+        self.condition_metric.setAccessibleName("Road condition measurement")
+        self.condition_metric.setMinimumContentsLength(9)
+        self.condition_metric.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        for title, key in (
+            ("Occupancy", "occupancy"),
+            ("Congested time", "congestion"),
+            ("Queue size", "queue"),
+        ):
+            self.condition_metric.addItem(title, key)
+        self.condition_metric.currentIndexChanged.connect(self.change_condition_series)
+        condition_controls.addWidget(self.condition_area, 1)
+        condition_controls.addWidget(self.condition_metric, 1)
+        condition_layout.addLayout(condition_controls)
+        self.condition_chart = FlowChart()
+        self.condition_chart.measure_kind = "occupancy"
+        self.condition_chart.setAccessibleName("Recorded road conditions and queues")
+        condition_layout.addWidget(self.condition_chart)
+        charts.addWidget(conditions, 1, 1)
+        analysis.addLayout(charts)
+        self.records = Foldout("Crossings, queues and anomalies")
+        self.history_counts = table(["Line", "Vehicle", "Direction", "Crossings"])
+        self.history_counts.setMaximumHeight(160)
+        self.records.body_layout.addWidget(self.history_counts)
+        self.event_filter = QComboBox()
+        self.event_filter.addItems(
+            ["All events", "Queues", "Anomalies", "Crossings", "Observation gaps"]
+        )
+        self.event_filter.setAccessibleName("Event records to show")
+        self.event_filter.currentIndexChanged.connect(self.refresh_event_table)
+        self.records.body_layout.addWidget(self.event_filter)
+        self.events_hint = label("No events recorded in this session.", "muted")
+        self.records.body_layout.addWidget(self.events_hint)
+        self.events = table(["Time (s)", "Event", "Area / line", "Vehicle", "Details"])
+        self.events.setMaximumHeight(180)
+        self.records.body_layout.addWidget(self.events)
+        self.records_note = label("", "muted")
+        self.records.body_layout.addWidget(self.records_note)
+        self.heatmap_export_button = self.button(
+            "Export heatmap PNG…", self.export_heatmap, self.records.body_layout
+        )
+        analysis.addWidget(self.records)
+        self.history_options = Foldout("Sessions and comparison")
+        filter_row = QHBoxLayout()
+        self.history_camera = QLineEdit()
+        self.history_camera.setPlaceholderText("Camera name or ID (optional)")
+        self.history_camera.setAccessibleName("Filter sessions by camera")
+        self.history_camera.returnPressed.connect(self.reset_history)
+        filter_row.addWidget(self.history_camera, 1)
+        self.button("Filter", self.reset_history, filter_row)
+        self.history_options.body_layout.addLayout(filter_row)
+        self.sessions = table(["Source", "Started (UTC)", "Status"])
+        self.sessions.setMaximumHeight(170)
+        self.sessions.itemSelectionChanged.connect(self.history_selected)
+        self.history_options.body_layout.addWidget(self.sessions)
+        self.compare_selector = QComboBox()
+        self.compare_selector.setAccessibleName("Compare with a compatible recorded session")
+        self.compare_selector.currentIndexChanged.connect(self.compare_session)
+        self.history_options.body_layout.addWidget(self.compare_selector)
+        self.comparison_status = label("", "muted")
+        self.history_options.body_layout.addWidget(self.comparison_status)
+        analysis.addWidget(self.history_options)
+        analysis.addWidget(
+            label(
+                "Charts show the latest 240 measurement windows. Tables show up to 200 events. "
+                "CSV and JSON include all session records. "
+                "Overlapping cameras are not deduplicated.",
+                "muted",
+            )
+        )
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self.analysis_content)
+        self.analysis_scroll = scroll
+        scroll.hide()
+        layout.addWidget(scroll, 1)
+        analysis.removeWidget(self.history_options)
+        layout.addWidget(self.history_options)
+        self.tabs.addWidget(page)
 
     def build_settings(self):
-        page = QWidget()
-        layout = QHBoxLayout(page)
-        group = QGroupBox("Camera and inference settings • apply between sessions")
-        form = QFormLayout(group)
+        page, layout = self.page()
+        heading(
+            layout,
+            "Settings",
+            "Camera preferences, local storage and the details that make analysis work.",
+        )
+        self.appearance = QComboBox()
+        self.appearance.addItems(["System", "Light", "Dark"])
+        self.appearance.setAccessibleName("Appearance")
+        self.appearance.currentTextChanged.connect(self.change_appearance)
+        appearance_row = QHBoxLayout()
+        appearance_row.addWidget(QLabel("Appearance"))
+        appearance_row.addWidget(self.appearance)
+        appearance_row.addStretch()
+        layout.addLayout(appearance_row)
+        self.settings_note = label(
+            "Changes apply to the next session. Stop active sources before saving.", "muted"
+        )
+        layout.addWidget(self.settings_note)
+        content = QWidget()
+        content.setObjectName("page")
+        settings = QVBoxLayout(content)
+        settings.setContentsMargins(0, 0, 8, 0)
+        settings.setSpacing(16)
         self.model_edit = QLineEdit()
         self.database_edit = QLineEdit()
-        for label, widget, callback in (
-            ("ONNX model", self.model_edit, self.choose_model),
-            ("SQLite database", self.database_edit, self.choose_database),
+        self.settings_fields = {}
+        sections = {}
+        for title in ("Camera", "Performance", "Storage", "Detection and traffic thresholds"):
+            section = Foldout(title)
+            form = QFormLayout()
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            form.setVerticalSpacing(12)
+            section.body_layout.addLayout(form)
+            sections[title] = (section, form)
+            settings.addWidget(section)
+        sections["Camera"][0].toggle.setChecked(True)
+        for title, text, widget, callback in (
+            ("Performance", "Detection model", self.model_edit, self.choose_model),
+            ("Storage", "Session database", self.database_edit, self.choose_database),
         ):
             row = QHBoxLayout()
-            row.addWidget(widget)
-            self.button("Browse…", callback, row)
-            form.addRow(label, row)
-        self.settings_fields = {}
-        for key, label, low, high, decimals in (
-            ("width", "Requested width", 160, 3840, 0),
-            ("height", "Requested height", 120, 2160, 0),
-            ("capture_fps", "Requested camera FPS", 1, 120, 0),
-            ("inference_fps", "Inference cap / source", 0.1, 30, 1),
-            ("threads", "OpenCV CPU threads", 1, 16, 0),
-            ("confidence", "Display confidence", 0.1, 0.99, 2),
-            ("detection_floor", "Detection floor", 0.1, 0.98, 2),
-            ("track_activation", "Track activation", 0.11, 0.99, 2),
-            ("retention_days", "Session retention (days)", 1, 36500, 0),
-            ("window_seconds", "Flow window (seconds)", 0.1, 3600, 1),
-            ("queue_min_vehicles", "Minimum queue vehicles", 1, 1000, 0),
-            ("queue_seconds", "Queue persistence (seconds)", 0.1, 3600, 1),
-            ("congestion_occupancy", "Congestion image occupancy", 0.01, 1, 2),
+            widget.setAccessibleName(text)
+            row.addWidget(widget, 1)
+            self.button("Choose…", callback, row)
+            sections[title][1].addRow(text, row)
+        for section, key, text, low, high, decimals in (
+            ("Camera", "width", "Video width", 160, 3840, 0),
+            ("Camera", "height", "Video height", 120, 2160, 0),
+            ("Camera", "capture_fps", "Camera frames / second", 1, 120, 0),
+            ("Performance", "inference_fps", "Analysis frames / second", 0.1, 30, 1),
+            ("Performance", "threads", "CPU threads", 1, 16, 0),
+            ("Detection and traffic thresholds", "confidence", "Display confidence", 0.1, 0.99, 2),
+            (
+                "Detection and traffic thresholds",
+                "detection_floor",
+                "Detection floor",
+                0.1,
+                0.98,
+                2,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "track_activation",
+                "Track activation",
+                0.11,
+                0.99,
+                2,
+            ),
+            ("Storage", "retention_days", "Keep sessions for (days)", 1, 36500, 0),
+            (
+                "Detection and traffic thresholds",
+                "window_seconds",
+                "Flow window (seconds)",
+                0.1,
+                3600,
+                1,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "queue_min_vehicles",
+                "Minimum queue size",
+                1,
+                1000,
+                0,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "queue_seconds",
+                "Queue persistence (seconds)",
+                0.1,
+                3600,
+                1,
+            ),
+            (
+                "Detection and traffic thresholds",
+                "congestion_occupancy",
+                "Congestion occupancy",
+                0.01,
+                1,
+                2,
+            ),
         ):
             widget = QDoubleSpinBox() if decimals else QSpinBox()
             widget.setRange(low, high)
             if decimals:
                 widget.setDecimals(decimals)
                 widget.setSingleStep(0.01 if decimals == 2 else 0.1)
-            widget.setAccessibleName(label)
+            widget.setMaximumWidth(220)
+            widget.setAccessibleName(text)
             widget.valueChanged.connect(lambda _, key=key: self.settings_changed.add(key))
             widget.lineEdit().textEdited.connect(lambda _, key=key: self.settings_changed.add(key))
             self.settings_fields[key] = widget
-            form.addRow(label, widget)
-        self.apply_button = QPushButton("Apply and save settings")
-        self.apply_button.setObjectName("primary")
-        self.apply_button.clicked.connect(self.apply_settings)
-        form.addRow(self.apply_button)
-        button = QPushButton("Import existing TOML configuration…")
-        button.clicked.connect(self.import_config)
-        form.addRow(button)
-        note = QLabel(
-            "Resolution/FPS are requests negotiated by macOS. "
-            "CPU defaults: 2 threads, 8 inferences/sec per source. "
-            "Completed sessions older than retention are pruned by the existing service "
-            "when a new analysis starts. Export valuable history before reducing retention."
+            sections[section][1].addRow(text, widget)
+        sections["Camera"][1].addRow(
+            label("macOS negotiates resolution and frame rate with the camera.", "muted")
         )
-        note.setWordWrap(True)
-        form.addRow(note)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(group)
-        layout.addWidget(scroll, 1)
-        diagnostics = QVBoxLayout()
-        layout.addLayout(diagnostics, 1)
-        diagnostics.addWidget(QLabel("DIAGNOSTICS"))
+        self.camera_summary = label("No camera is open.", "muted")
+        self.camera_summary.setAccessibleName("Actual camera connection and video format")
+        sections["Camera"][0].body_layout.addWidget(self.camera_summary)
+        self.button("Manage cameras…", self.manage_sources, sections["Camera"][0].body_layout)
+        self.button("Camera permission help", self.camera_help, sections["Camera"][0].body_layout)
+        self.performance_summary = label("", "muted")
+        self.performance_summary.setAccessibleName("Configured processing budget")
+        sections["Performance"][0].body_layout.addWidget(self.performance_summary)
+        sections["Performance"][1].addRow(
+            label(
+                "Recommended on Intel: 2 CPU threads and 8 analyses per second per live source. "
+                "Imported recordings analyze every frame.",
+                "muted",
+            )
+        )
+        sections["Storage"][1].addRow(
+            label(
+                "Older completed sessions are pruned when a new analysis starts. "
+                "Export valuable sessions before reducing retention.",
+                "muted",
+            )
+        )
+        self.button("Open data folder", self.open_data, sections["Storage"][0].body_layout)
+        privacy = Foldout("Privacy and diagnostics")
+        privacy.body_layout.addWidget(
+            label(
+                "Video and inference stay on this Mac. ROADLENS stores traffic measurements "
+                "and trajectories, not camera recordings. "
+                "Exports can include camera names and movement data. "
+                "Only load models and videos from sources you trust.",
+                "muted",
+            )
+        )
         self.diagnostics = QTextEdit()
         self.diagnostics.setReadOnly(True)
-        self.diagnostics.setToolTip(
-            "Live diagnostics update once per second; pause while focused for copying."
+        self.diagnostics.setAccessibleName("Local processing diagnostics")
+        self.diagnostics.setMinimumHeight(230)
+        self.diagnostics.setToolTip("Updates once a second; focus to pause updates and copy text.")
+        privacy.body_layout.addWidget(self.diagnostics)
+        self.button("Copy diagnostics", self.copy_diagnostics, privacy.body_layout)
+        privacy.body_layout.addWidget(
+            label("Diagnostics include local paths and device IDs. Review before sharing.", "muted")
         )
-        diagnostics.addWidget(self.diagnostics, 1)
-        self.button("Camera permission help", self.camera_help, diagnostics)
-        self.button("Open local data folder", self.open_data, diagnostics)
-        self.tabs.addTab(page, "Settings and diagnostics")
+        self.diagnostic_section = privacy
+        settings.addWidget(privacy)
+        advanced = Foldout("Import configuration")
+        self.button("Import TOML configuration…", self.import_config, advanced.body_layout)
+        advanced.body_layout.addWidget(
+            label(
+                "Imports existing sources, geometry paths and advanced processing options. "
+                "Your recorded sessions are preserved.",
+                "muted",
+            )
+        )
+        settings.addWidget(advanced)
+        settings.addStretch()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+        footer = QHBoxLayout()
+        self.apply_button = self.button("Save settings", self.apply_settings, footer, primary=True)
+        self.button("Revert changes", self.populate_settings, footer)
+        footer.addStretch()
+        layout.addLayout(footer)
+        self.tabs.addWidget(page)
 
     def selected_source(self):
         index = self.source_list.currentRow()
@@ -529,10 +884,11 @@ class DesktopWindow(QMainWindow):
         previous = self.selected_source()
         self.source_list.blockSignals(True)
         self.source_list.clear()
+        self.source_selector.blockSignals(True)
+        self.source_selector.clear()
         for source in self.sources:
-            self.source_list.addItem(
-                f"{source.name}\n{source.kind} • {source.camera_id or source.name}"
-            )
+            self.source_list.addItem(source.name)
+            self.source_selector.addItem(source.name)
             self.source_list.item(self.source_list.count() - 1).setToolTip(
                 f"{source.name}\n{source.value}\nCamera ID: {source.camera_id or source.name}"
             )
@@ -542,15 +898,20 @@ class DesktopWindow(QMainWindow):
                 pane.deleteLater()
                 del self.panes[name]
         self.empty.setVisible(not self.sources)
-        for index, source in enumerate(self.sources):
+        for source in self.sources:
             if source.name not in self.panes:
                 self.panes[source.name] = SourcePane(source)
-            self.gallery.addWidget(self.panes[source.name], index // 2, index % 2)
+            try:
+                self.panes[source.name].preview.scene = scene_for_source(source.scene)
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                self.panes[source.name].status.setText(f"Road configuration unavailable: {error}")
+            self.panes[source.name].preview.show_geometry = self.draw_geometry
         selected = next(
             (i for i, s in enumerate(self.sources) if previous and s.name == previous.name), 0
         )
         self.source_list.setCurrentRow(selected if self.sources else -1)
         self.source_list.blockSignals(False)
+        self.source_selector.blockSignals(False)
         self.selection_changed()
 
     def selection_changed(self):
@@ -558,6 +919,31 @@ class DesktopWindow(QMainWindow):
             return
         source = self.selected_source()
         result = self.latest.get(source.name) if source else None
+        self.source_selector.blockSignals(True)
+        self.source_selector.setCurrentIndex(self.source_list.currentRow())
+        self.source_selector.setToolTip(source.name if source else "Choose a source")
+        self.source_selector.blockSignals(False)
+        visible = [s for s in self.sources if self.show_all.isChecked() or s == source]
+        for item in self.sources:
+            pane = self.panes[item.name]
+            self.gallery.removeWidget(pane)
+            pane.setVisible(item in visible)
+            pane.title.setVisible(self.show_all.isChecked())
+        for index, item in enumerate(visible):
+            self.gallery.addWidget(
+                self.panes[item.name],
+                index // 2 if len(visible) > 1 else 0,
+                index % 2 if len(visible) > 1 else 0,
+            )
+        previous_line = self.monitor_line.currentData()
+        self.monitor_line.blockSignals(True)
+        self.monitor_line.clear()
+        if source:
+            for line in self.panes[source.name].preview.scene.lines:
+                self.monitor_line.addItem(line.id, line.id)
+        self.monitor_line.setCurrentIndex(max(0, self.monitor_line.findData(previous_line)))
+        self.monitor_line.setEnabled(self.monitor_line.count() > 0)
+        self.monitor_line.blockSignals(False)
         self.update_live(result)
 
     def add_source(self, source):
@@ -570,10 +956,14 @@ class DesktopWindow(QMainWindow):
         self.sync_sources()
         self.source_list.setCurrentRow(len(self.sources) - 1)
         self.persist()
+        if source.kind == "video":
+            self.load_video_preview(source)
 
     def discover_cameras(self):
         self.discover_button.setEnabled(False)
-        self.statusBar().showMessage("Discovering AVFoundation devices…")
+        self.discover_button.setText("Finding cameras…")
+        self.camera_status.setText("Looking for Mac, iPhone and external cameras…")
+        self.statusBar().showMessage("Finding cameras…")
         self.launch_job("cameras", list_cameras, self.cameras_discovered)
 
     def cameras_discovered(self, devices):
@@ -581,7 +971,13 @@ class DesktopWindow(QMainWindow):
         for device in devices:
             kind = "iPhone" if "Continuity" in device["type"] else "Mac / external"
             self.camera_selector.addItem(f"{device['name']} ({kind})", device)
-        self.statusBar().showMessage(f"{len(devices)} camera(s) available; no capture started")
+        self.discover_button.setText("Find cameras")
+        self.camera_status.setText(
+            f"{len(devices)} camera(s) available. Add one, then press Start in Monitor."
+            if devices
+            else "No cameras found. Check camera permissions and your iPhone connection."
+        )
+        self.statusBar().showMessage(self.camera_status.text())
 
     def add_camera(self):
         device = self.camera_selector.currentData()
@@ -602,9 +998,12 @@ class DesktopWindow(QMainWindow):
         )
         for path in paths:
             identity = hashlib.sha256(str(Path(path).resolve()).encode()).hexdigest()[:12]
+            name = Path(path).stem
+            if any(s.name == name and s.value != str(Path(path).resolve()) for s in self.sources):
+                name = f"{name} [{identity[:5]}]"
             self.add_source(
                 SourceConfig(
-                    f"{Path(path).stem} [{identity[:5]}]",
+                    name,
                     "video",
                     str(Path(path).resolve()),
                     realtime=False,
@@ -612,7 +1011,7 @@ class DesktopWindow(QMainWindow):
                 )
             )
         if paths:
-            self.statusBar().showMessage("Video imported. Start selected to analyze every frame.")
+            self.statusBar().showMessage("Video imported. Press Start to analyze every frame.")
 
     def start_source(self, source):
         if self.closing or self.active(source.name):
@@ -628,6 +1027,7 @@ class DesktopWindow(QMainWindow):
             runtime = replace(source, scene=str(scene_path))
             config = replace(self.config, sources=tuple(self.sources))
             pipeline = self.pipeline_factory(runtime, config)
+            pipeline.desktop_preview = True
             self.pipelines[source.name] = pipeline
             self.latest.pop(source.name, None)
             self.received.pop(source.name, None)
@@ -672,13 +1072,26 @@ class DesktopWindow(QMainWindow):
         if not source or self.active(source.name):
             return
         try:
+            pane = self.panes[source.name]
+            if pane.raw_image.isNull():
+                self.statusBar().showMessage(
+                    "Wait for a video preview, or start and stop the camera once before drawing."
+                )
+                if source.kind == "video":
+                    self.load_video_preview(source)
+                return
             editor = SceneEditor(
-                scene_for_source(source.scene), self.panes[source.name].preview.image, self
+                scene_for_source(source.scene),
+                pane.raw_image,
+                self,
+                detection_image=pane.preview.image,
             )
             if editor.exec() == QDialog.DialogCode.Accepted:
                 path = self.data_dir / "scenes" / f"{editor.scene.fingerprint}.json"
                 editor.scene.save(path)
                 self.sources[self.sources.index(source)] = replace(source, scene=str(path))
+                pane.preview.scene = editor.scene
+                pane.preview.update()
                 if self.persist():
                     self.statusBar().showMessage(
                         "Scene saved. Start the source to begin a new session."
@@ -688,13 +1101,39 @@ class DesktopWindow(QMainWindow):
 
     def update_live(self, result):
         if result is None:
-            for label in self.metrics.values():
-                label.setText("—")
+            for metric in self.metrics.values():
+                metric.setText("—")
+                metric.setToolTip("Start a source to record this measurement")
             fill_table(self.count_table, [])
             fill_table(self.zone_table, [])
             self.live_status.setText("Start the selected source to see its measurements.")
+            self.availability.setText("Configure a line for counts or a road area for congestion.")
+            self.monitor_hint.setText(
+                "Press Start for detection. Configure the road to enable counting and congestion."
+                if self.selected_source()
+                else "Import a video or connect a camera to get started."
+            )
             return
         snapshot = result.analysis
+        missing = []
+        if snapshot is not None:
+            if not snapshot.counting_available:
+                missing.append("Vehicle counting needs a line across the road.")
+            if not snapshot.zones:
+                missing.append("Congestion needs a road area.")
+            if not any(z.queued_vehicles is not None for z in snapshot.zones):
+                missing.append("Queue size needs a queue area, configured in Advanced.")
+            if not any(speed.mps is not None for speed in snapshot.speeds):
+                missing.append(
+                    "Physical speed: "
+                    + (snapshot.speed_unavailable_reason or "more observations needed")
+                    + "."
+                )
+        self.availability.setText("\n".join(missing) or "Configured measurements are available.")
+        self.metrics["Traffic flow"].setText("—")
+        self.metrics["Traffic flow"].setToolTip(
+            "A counting line and a saved observation window are required"
+        )
         self.metrics["Visible tracks"].setText(str(len(result.tracks)))
         if snapshot is None:
             self.update_live(None)
@@ -702,9 +1141,7 @@ class DesktopWindow(QMainWindow):
             self.live_status.setText("Traffic analysis unavailable for this result.")
             return
         self.metrics["Crossing events"].setText(
-            str(sum(c.count for c in snapshot.counts))
-            if snapshot.counting_available
-            else "No lines"
+            str(sum(c.count for c in snapshot.counts)) if snapshot.counting_available else "—"
         )
         queues = [z.queued_vehicles for z in snapshot.zones if z.queued_vehicles is not None]
         # Overlapping zones can contain the same queue; never sum them as unique vehicles.
@@ -714,7 +1151,31 @@ class DesktopWindow(QMainWindow):
             (state for state in ("congested", "observing", "free") if state in conditions),
             "Unavailable" if conditions else "No road zone",
         )
-        self.metrics["Congestion"].setText(congestion or "No road zone")
+        self.metrics["Congestion"].setText(
+            {"free": "Free flowing", "observing": "Observing", "congested": "Congested"}.get(
+                congestion, "—"
+            )
+        )
+        self.monitor_hint.setText(
+            "Counting vehicles across your line. Flow appears after an observation window is saved."
+            if snapshot.counting_available
+            else "Detection is running. Draw a line in Configure road to count vehicles."
+        )
+        if not snapshot.zones:
+            self.monitor_hint.setText(
+                self.monitor_hint.text() + " Draw a road area to measure congestion."
+            )
+        self.metrics["Crossing events"].setToolTip(
+            "Cumulative crossing events in this session"
+            if snapshot.counting_available
+            else "Draw a counting line to enable vehicle counts"
+        )
+        self.metrics["Congestion"].setToolTip(
+            "Measured from occupancy in configured road areas"
+            if snapshot.zones
+            else "Draw a road area to measure congestion"
+        )
+        self.update_flow_metric()
         fill_table(
             self.count_table,
             [(c.line_id, c.category, c.direction, c.count) for c in snapshot.counts],
@@ -745,8 +1206,8 @@ class DesktopWindow(QMainWindow):
             "ready" if snapshot.baseline_ready else f"warming ({snapshot.baseline_windows} windows)"
         )
         self.live_status.setText(
-            f"Source time {snapshot.source_time:.2f}s • {speed} • "
-            f"Anomaly baseline {baseline}. Queue card = largest zone queue."
+            f"Source time: {snapshot.source_time:.2f} s. {speed}. "
+            f"Anomaly baseline {baseline}. Queue = largest road-area queue."
         )
 
     def tick(self):
@@ -759,7 +1220,10 @@ class DesktopWindow(QMainWindow):
             if result is not None:
                 self.latest[source.name] = result
                 self.received[source.name] = now
-                self.panes[source.name].preview.set_image(qimage(result.image))
+                pane = self.panes[source.name]
+                pane.preview.set_image(qimage(result.image))
+                if result.raw_image is not None:
+                    pane.raw_image = qimage(result.raw_image)
                 if source == self.selected_source():
                     self.update_live(result)
             if pipeline.error:
@@ -768,6 +1232,8 @@ class DesktopWindow(QMainWindow):
                 state = "completed" if pipeline.capture.state == "eof" else "stopped"
             elif pipeline.stop_event.is_set():
                 state = "stopping"
+            elif pipeline.paused.is_set():
+                state = "paused"
             else:
                 state = pipeline.capture.state
             age = now - self.received[source.name] if source.name in self.received else None
@@ -777,26 +1243,71 @@ class DesktopWindow(QMainWindow):
                 and age > max(2, 2 / pipeline.config.inference_fps)
             ):
                 state = "stale / waiting for frames"
-            status = f"{state.upper()} • {pipeline.processed} frames • "
-            status += f"last frame {age:.1f}s ago" if age is not None else "waiting for first frame"
+            status = {
+                "running": "Analyzing",
+                "connecting": "Connecting…",
+                "starting": "Starting…",
+                "paused": "Paused",
+                "completed": "Completed",
+                "stopped": "Stopped",
+                "stopping": "Stopping…",
+                "failed": "FAILED",
+                "reconnecting": "Reconnecting…",
+            }.get(state, state.capitalize())
+            self.panes[source.name].progress.setText(f"{pipeline.processed} frames analyzed")
             if pipeline.error:
-                status += f" • {pipeline.error}"
-            elif pipeline.capture.last_error:
-                status += f" • {pipeline.capture.last_error}"
+                status += f": {pipeline.error}"
+            elif pipeline.capture.last_error and state not in ("completed", "stopped"):
+                status += f": {pipeline.capture.last_error}"
             self.panes[source.name].status.setText(status)
+            if (
+                source == self.selected_source()
+                and state in ("completed", "stopped")
+                and self.metrics["Congestion"].text() == "Observing"
+            ):
+                self.metrics["Congestion"].setText("Insufficient data")
+                self.metrics["Congestion"].setToolTip(
+                    "The session ended before road conditions could be established."
+                )
         source = self.selected_source()
         running = bool(source and self.active(source.name))
         self.start_button.setEnabled(bool(source) and not running and not self.closing)
+        self.analysis_button.setEnabled(
+            bool(source and self.pipelines.get(source.name) and self.pipelines[source.name].traffic)
+        )
         self.stop_button.setEnabled(running)
+        self.pause_button.setEnabled(
+            running and not self.pipelines[source.name].stop_event.is_set() if running else False
+        )
+        paused = running and self.pipelines[source.name].paused.is_set()
+        self.pause_button.setText("Resume" if paused else "Pause")
+        self.pause_button.setToolTip(
+            "Resume analysis" if paused else "Pause analysis; live cameras remain connected"
+        )
+        self.start_button.setToolTip(
+            "Stop the current analysis before restarting"
+            if running
+            else "Analyze the selected source"
+        )
+        self.edit_button.setToolTip(
+            "Stop this source to edit the road" if running else "Draw a counting line or road area"
+        )
         self.edit_button.setEnabled(bool(source) and not running)
         self.remove_button.setEnabled(bool(source) and not running)
         self.apply_button.setEnabled(not self.any_active())
         self.discover_button.setEnabled("cameras" not in self.jobs and not self.closing)
         export_ready = bool(self.history_session and self.report_data) and "export" not in self.jobs
         self.export_button.setEnabled(export_ready)
-        self.heatmap_export_button.setEnabled(export_ready)
+        self.export_button.setText("Exporting…" if "export" in self.jobs else "Export…")
+        self.export_button.setToolTip(
+            "Export the selected session" if export_ready else "Select a saved session to export"
+        )
+        self.heatmap_export_button.setEnabled(
+            export_ready and bool(self.report_data.get("heatmap"))
+        )
+        self.add_camera_button.setEnabled(self.camera_selector.currentData() is not None)
         active = sum(self.active(name) for name in self.pipelines)
-        self.global_status.setText(f"{active} active source(s) • CPU • local SQLite")
+        self.global_status.setText(f"{active} source(s) active" if active else "Ready")
         if self.tabs.currentIndex() == 2 and now - self.last_diagnostic >= 1:
             self.last_diagnostic = now
             self.update_diagnostics()
@@ -808,9 +1319,19 @@ class DesktopWindow(QMainWindow):
             self.close()
 
     def update_diagnostics(self):
-        if self.diagnostics.hasFocus():
+        self.update_camera_summary()
+        if (
+            not self.diagnostics.isVisible()
+            or self.diagnostics.hasFocus()
+            or self.diagnostics.textCursor().hasSelection()
+        ):
             return
+        import resource
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_mb = peak / (1024 * 1024 if sys.platform == "darwin" else 1024)
         lines = [
+            f"Measured peak process memory: {peak_mb:.1f} MiB (includes the desktop and workers)",
             f"ROADLENS 0.1.0 | Python {platform.python_version()} | {platform.machine()}",
             f"{platform.platform()} | OpenCV {cv2.__version__}",
             f"Model: {self.config.model}",
@@ -834,7 +1355,12 @@ class DesktopWindow(QMainWindow):
             if result:
                 lines.append(
                     f"inference {result.inference_ms:.1f} ms | "
-                    f"frame age {result.latency_ms:.1f} ms | epoch {result.epoch}"
+                    + (
+                        "recording timestamps"
+                        if pipeline.source.kind == "video"
+                        else f"frame age {result.latency_ms:.1f} ms"
+                    )
+                    + f" | epoch {result.epoch}"
                 )
             if pipeline.error:
                 lines.append(f"ERROR: {pipeline.error}")
@@ -866,8 +1392,16 @@ class DesktopWindow(QMainWindow):
             LOG.exception("Desktop task %s completion failed", name)
             if name == "history":
                 self.report_data = None
+                self.classification_chart.set_data({})
+                self.condition_chart.set_windows([])
+                self.analysis_scroll.hide()
+                self.analysis_empty.setText(
+                    "Session data could not be read. Check the database in Settings."
+                )
+                self.analysis_empty.show()
                 self.chart.set_windows([])
                 self.heatmap.set_image(QImage())
+                self.heatmap_legend.set_scale(None)
                 self.heatmap_caption.setText("Heatmap unavailable while history cannot be read")
                 fill_table(self.history_counts, [])
                 fill_table(self.events, [])
@@ -876,6 +1410,18 @@ class DesktopWindow(QMainWindow):
                     self.statusBar().showMessage(f"History unavailable: {failure}")
                     self.last_read_error = str(failure)
             else:
+                if name == "cameras":
+                    self.discover_button.setText("Find cameras")
+                    self.camera_status.setText(f"Camera discovery failed: {failure}")
+                elif name.startswith("preview:"):
+                    source_name = name.removeprefix("preview:")
+                    if source_name in self.panes:
+                        pane = self.panes[source_name]
+                        pane.status.setText(f"Cannot open recording: {failure}")
+                        pane.preview.empty_message = (
+                            "Could not read this recording.\nCheck its path or import another file."
+                        )
+                        pane.preview.update()
                 self.show_error(failure)
 
     def reset_history(self):
@@ -887,6 +1433,9 @@ class DesktopWindow(QMainWindow):
         index = self.sessions.currentRow()
         if 0 <= index < len(self.history_rows):
             self.history_session = self.history_rows[index]["id"]
+            self.report_data = None
+            self.history_status.setText("Loading the selected session…")
+            self.export_button.setEnabled(False)
             self.history_request += 1
             self.refresh_history()
 
@@ -920,18 +1469,47 @@ class DesktopWindow(QMainWindow):
         self.sessions.blockSignals(True)
         fill_table(
             self.sessions,
-            [
-                (r["name"], r["started_at"], r["status"], r["clock_kind"], r["id"])
-                for r in self.history_rows
-            ],
+            [(r["name"], r["started_at"], r["status"]) for r in self.history_rows],
         )
         for index, row in enumerate(self.history_rows):
             if row["id"] == self.history_session:
                 self.sessions.selectRow(index)
                 break
         self.sessions.blockSignals(False)
+        self.history_selector.blockSignals(True)
+        self.history_selector.clear()
+        for row in self.history_rows:
+            self.history_selector.addItem(
+                f"{row['name']} ({row['started_at'][:19].replace('T', ' ')} UTC)", row["id"]
+            )
+        self.history_selector.setCurrentIndex(self.history_selector.findData(self.history_session))
+        self.history_selector.blockSignals(False)
+        comparison = self.compare_selector.currentData()
+        self.compare_selector.blockSignals(True)
+        self.compare_selector.clear()
+        self.compare_selector.addItem("Choose a comparison session", None)
+        for row in self.history_rows:
+            if comparable_sessions(selected, row):
+                self.compare_selector.addItem(
+                    f"{row['name']} ({row['started_at'][:19]})", row["id"]
+                )
+        self.compare_selector.setCurrentIndex(max(0, self.compare_selector.findData(comparison)))
+        self.compare_selector.setEnabled(self.compare_selector.count() > 1)
+        self.compare_selector.blockSignals(False)
+        self.compare_session()
+        self.analysis_empty.setText(
+            "No sessions recorded\n\n"
+            "Your sessions, flow charts and movement heatmaps will appear here after analysis."
+        )
+        self.analysis_empty.setVisible(not selected)
+        self.analysis_scroll.setVisible(bool(selected))
+        self.records_note.setText(
+            "No queue or anomaly events recorded."
+            if not any(e["kind"] != "crossing" for e in data["events"])
+            else "Queue and anomaly events are listed with their source time and recorded details."
+        )
         series = sorted({key for w in data["windows"] for key in w["flow_per_minute"]})
-        selected_series = self.flow_series.currentText()
+        selected_series = self.flow_series.currentData()
         if selected_series not in series and series:
             selected_series = max(
                 series,
@@ -941,52 +1519,64 @@ class DesktopWindow(QMainWindow):
             )
         self.flow_series.blockSignals(True)
         self.flow_series.clear()
-        self.flow_series.addItems(series)
-        self.flow_series.setCurrentText(selected_series)
+        for key in series:
+            self.flow_series.addItem(
+                " / ".join(part.replace("_", " ") for part in key.split("/")), key
+            )
+        self.flow_series.setCurrentIndex(self.flow_series.findData(selected_series))
         self.flow_series.blockSignals(False)
         self.chart.series = selected_series
         self.chart.set_windows(data["windows"])
+        self.classification_chart.set_data(data)
+        self.condition_chart.set_windows(data["windows"])
+        selected_area = self.condition_area.currentData()
+        self.condition_area.blockSignals(True)
+        self.condition_area.clear()
+        if selected:
+            for zone in json.loads(selected["scene_json"])["zones"]:
+                if zone["kind"] != "exclude":
+                    self.condition_area.addItem(zone["name"], zone["id"])
+        self.condition_area.setCurrentIndex(max(0, self.condition_area.findData(selected_area)))
+        self.condition_area.blockSignals(False)
+        self.change_condition_series()
         image, maximum = heatmap_image(data["heatmap"])
         self.heatmap.set_image(image)
-        self.heatmap_caption.setText(
-            f"Observed dwell • relative scale 0–{maximum:.3f} vehicle-seconds/cell"
-            if not image.isNull()
-            else "No saved dwell observations yet"
-        )
+        self.heatmap_caption.setText("Vehicle movement")
+        self.heatmap_legend.set_scale(maximum if not image.isNull() else None)
         fill_table(
             self.history_counts,
             [(c["object_id"], c["category"], c["direction"], c["count"]) for c in data["counts"]],
         )
-        fill_table(
-            self.events,
-            [
-                (
-                    f"{e['source_time']:.2f}",
-                    e["kind"],
-                    e["object_id"],
-                    e["category"],
-                    e["details_json"] if e["kind"] != "crossing" else e["direction"],
-                )
-                for e in data["events"]
-            ],
-        )
+        self.refresh_event_table()
         if selected:
-            settings = json.loads(selected["settings_json"])
-            parameters = settings.get("parameters", {})
+            scene = json.loads(selected["scene_json"])
+            total = sum(c["count"] for c in data["counts"])
+            self.analysis_summary.setText(
+                f"{total} crossing event(s) across {len(scene['lines'])} counting line(s)"
+                if scene["lines"]
+                else "Detection session. No counting lines configured."
+            )
             latest = data["windows"][-1] if data["windows"] else {}
             baseline = latest.get("baseline_ready")
             self.history_status.setText(
-                f"{selected['name']} • {selected['status']} • session {selected['id']} • "
-                f"{data['event_total']} recorded event(s) • "
-                f"baseline {'ready' if baseline else 'warming / unavailable'} • "
-                f"window {parameters.get('window_seconds', '?')}s"
+                f"{selected['name']}. {selected['status'].capitalize()}. "
+                f"{data['event_total']} recorded event(s)"
+                + (
+                    ". Anomaly detection is learning this road."
+                    if not baseline
+                    else ". Anomaly baseline ready."
+                )
             )
         else:
-            self.history_status.setText("No saved sessions match this camera.")
+            self.history_status.setText(
+                "No saved sessions match this camera. "
+                "Clear the filter or start analysis in Monitor."
+            )
+        self.update_flow_metric()
 
     def change_flow_series(self, series):
         if hasattr(self, "chart"):
-            self.chart.series = series
+            self.chart.series = self.flow_series.currentData() or series
             self.chart.update()
 
     def export_session(self):
@@ -994,7 +1584,7 @@ class DesktopWindow(QMainWindow):
             self.statusBar().showMessage("An export is already running.")
             return
         if not self.history_session or not self.report_data:
-            self.show_error(ValueError("Select a saved session in History and analysis first"))
+            self.show_error(ValueError("Select a saved session in Analysis first"))
             return
         database = Path(self.config.analytics.database)
         session = self.history_session
@@ -1049,14 +1639,25 @@ class DesktopWindow(QMainWindow):
             self.launch_job("export", export, self.export_finished)
 
     def export_finished(self, result):
-        paths = ", ".join(str(p) for p in result) if isinstance(result, list) else str(result)
-        self.statusBar().showMessage(f"Exported: {paths}")
-        QMessageBox.information(self, "Export complete", paths)
+        paths = result if isinstance(result, list) else [result]
+        self.last_export_dir = Path(paths[0]).parent
+        self.export_status.setText(f"Export complete: {len(paths)} file(s) saved.")
+        self.export_status.show()
+        self.export_status.setToolTip("\n".join(str(path) for path in paths))
+        self.export_folder_button.show()
+        self.statusBar().showMessage(
+            "Export complete. Choose Show export folder to view the files."
+        )
 
     def populate_settings(self):
         self.model_edit.setText(self.config.model)
         self.database_edit.setText(self.config.analytics.database or "")
         self.settings_changed.clear()
+        self.performance_summary.setText(
+            f"Configured: {self.config.threads} CPU threads. "
+            f"{self.config.inference_fps:g} analyses/s "
+            "per live source. Unpaced recordings process every frame."
+        )
         for key, widget in self.settings_fields.items():
             configured = (
                 getattr(self.config, key)
@@ -1104,7 +1705,7 @@ class DesktopWindow(QMainWindow):
             self.history_session = None
             self.history_request += 1
             self.refresh_history()
-            self.statusBar().showMessage(f"Settings saved • database: {database}")
+            self.statusBar().showMessage(f"Settings saved. Database: {database}")
         except (OSError, ValueError, TypeError) as error:
             self.show_error(error)
 
@@ -1192,7 +1793,7 @@ class DesktopWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Camera access on macOS",
-            "Click Discover cameras, add the actual device, then Start. "
+            "Open Sources, choose Find cameras, add your device, then Start. "
             "Accept the macOS camera prompt.\n\n"
             "If denied: System Settings → Privacy & Security → Camera. Enable ROADLENS / "
             "ROADLENS Camera or the launching terminal, then restart capture.\n\n"
@@ -1223,6 +1824,277 @@ class DesktopWindow(QMainWindow):
             self.timer.stop()
             event.accept()
 
+    def change_appearance(self, appearance, *, persist=True):
+        hints = QApplication.styleHints()
+        if appearance == "System":
+            hints.unsetColorScheme()
+        else:
+            hints.setColorScheme(
+                Qt.ColorScheme.Dark if appearance == "Dark" else Qt.ColorScheme.Light
+            )
+        dark = appearance == "Dark" or (
+            appearance == "System"
+            and QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
+        )
+        apply_appearance(self, dark)
+        if persist:
+            try:
+                self.data_dir.mkdir(parents=True, exist_ok=True)
+                (self.data_dir / "appearance.json").write_text(
+                    json.dumps({"appearance": appearance})
+                )
+            except OSError as error:
+                self.statusBar().showMessage(f"Could not save appearance: {error}")
+
+    def system_appearance_changed(self, _):
+        if self.appearance.currentText() == "System":
+            self.change_appearance("System", persist=False)
+
+    def navigate(self, index):
+        for position, button in enumerate(self.nav_buttons):
+            button.setChecked(position == index)
+        self.refresh_history()
+
+    def page(self):
+        page = QWidget()
+        page.setObjectName("page")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(28, 24, 28, 16)
+        layout.setSpacing(16)
+        return page, layout
+
+    def select_source_index(self, index):
+        self.source_list.setCurrentRow(index)
+
+    def build_sources_dialog(self):
+        self.sources_dialog = QDialog(self)
+        self.sources_dialog.setWindowTitle("Sources")
+        self.sources_dialog.resize(510, 560)
+        layout = QVBoxLayout(self.sources_dialog)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+        heading(layout, "Sources", "Keep recordings and cameras together. Select one to monitor.")
+        self.source_list = QListWidget()
+        self.source_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.source_list.setAccessibleName("Saved sources")
+        self.source_list.currentRowChanged.connect(self.selection_changed)
+        layout.addWidget(self.source_list, 1)
+        row = QHBoxLayout()
+        self.button("Import video…", self.import_video, row)
+        self.remove_button = self.button("Remove", self.remove_source, row)
+        layout.addLayout(row)
+        layout.addWidget(label("Connect a camera", "brand"))
+        layout.addWidget(
+            label("Find cameras available to macOS, then add your chosen device.", "muted")
+        )
+        self.camera_selector = QComboBox()
+        self.camera_selector.setAccessibleName("Available MacBook and iPhone cameras")
+        self.camera_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        layout.addWidget(self.camera_selector)
+        row = QHBoxLayout()
+        self.discover_button = self.button("Find cameras", self.discover_cameras, row)
+        self.add_camera_button = self.button("Add camera", self.add_camera, row)
+        layout.addLayout(row)
+        self.camera_status = label("Finding cameras does not start recording or capture.", "muted")
+        layout.addWidget(self.camera_status)
+        self.button("Camera permission help", self.camera_help, layout)
+        self.button("Done", self.sources_dialog.accept, layout, primary=True)
+
+    def manage_sources(self):
+        self.sources_dialog.open()
+        if self.camera_selector.count() == 0:
+            self.discover_cameras()
+
+    def load_video_preview(self, source):
+        self.panes[source.name].status.setText("Opening recording…")
+
+        def read():
+            from roadlens.capture import OpenCVCapture
+
+            capture = OpenCVCapture(source, self.config)
+            try:
+                return qimage(capture.read())
+            finally:
+                capture.close()
+
+        def loaded(image):
+            if source not in self.sources or self.active(source.name) or source.name in self.latest:
+                return
+            pane = self.panes[source.name]
+            pane.raw_image = image
+            pane.preview.set_image(image)
+            pane.preview.scene = scene_for_source(source.scene)
+            pane.preview.show_geometry = self.draw_geometry
+            pane.status.setText("Ready. Configure the road or press Start.")
+
+        self.launch_job(f"preview:{source.name}", read, loaded)
+
+    def pause_selected(self):
+        source = self.selected_source()
+        if source and self.active(source.name):
+            pipeline = self.pipelines[source.name]
+            pipeline.set_paused(not pipeline.paused.is_set())
+            self.tick()
+
+    def toggle_playback(self):
+        if source := self.selected_source():
+            if self.active(source.name):
+                self.pause_selected()
+            else:
+                self.start_selected()
+
+    def set_geometry_visible(self, visible):
+        self.draw_geometry = visible
+        for pane in self.panes.values():
+            pane.preview.show_geometry = visible
+            pane.preview.update()
+
+    def update_flow_metric(self, *_):
+        source = self.selected_source()
+        pipeline = self.pipelines.get(source.name) if source else None
+        data = self.report_data or {}
+        session = data.get("session")
+        if not (
+            pipeline
+            and pipeline.traffic
+            and session
+            and session["id"] == pipeline.traffic.session_id
+        ):
+            return
+        windows = data.get("windows", [])
+        latest = next((w for w in reversed(windows) if w["observed_seconds"] > 0), None)
+        if latest and latest["flow_per_minute"]:
+            # Each line is a separate observation; select one rather than summing overlapping lines.
+            line = self.monitor_line.currentData()
+            if line is None:
+                return
+            values = [
+                value
+                for key, value in latest["flow_per_minute"].items()
+                if key.split("/")[0] == line and value is not None
+            ]
+            if values:
+                self.metrics["Traffic flow"].setText(f"{sum(values):.1f}")
+                self.metrics["Traffic flow"].setToolTip(
+                    f"Vehicles per observed minute at line {line}; latest saved window"
+                )
+                self.monitor_hint.setText(
+                    f"Counting line {line}. "
+                    f"{latest['observed_seconds']:.1f}s observed in the latest window."
+                )
+
+    def open_current_analysis(self):
+        source = self.selected_source()
+        pipeline = self.pipelines.get(source.name) if source else None
+        if pipeline and pipeline.traffic and pipeline.traffic.session_id:
+            self.history_session = pipeline.traffic.session_id
+            self.history_request += 1
+            self.tabs.setCurrentIndex(1)
+            self.refresh_history()
+
+    def select_history_index(self, index):
+        if 0 <= index < len(self.history_rows):
+            self.sessions.selectRow(index)
+
+    def change_condition_series(self, *_):
+        self.condition_chart.zone = self.condition_area.currentData() or ""
+        self.condition_chart.measure_kind = self.condition_metric.currentData() or "occupancy"
+        self.condition_chart.setAccessibleDescription(
+            f"{self.condition_metric.currentText()} for {self.condition_area.currentText()}. "
+            "Only saved observed measurement windows are plotted."
+        )
+        self.condition_chart.update()
+
+    def refresh_event_table(self, *_):
+        events = (self.report_data or {}).get("events", [])
+        groups = {
+            1: {"queue_started", "queue_cleared"},
+            2: {"anomaly", "stalled", "stalled_cleared"},
+            3: {"crossing"},
+            4: {"observation_gap"},
+        }
+        allowed = groups.get(self.event_filter.currentIndex())
+        rows = [event_row(event) for event in events if allowed is None or event["kind"] in allowed]
+        fill_table(self.events, rows)
+        self.events.setVisible(bool(rows))
+        self.events_hint.setVisible(not rows)
+        self.events_hint.setText("No matching events in the latest 200 saved records.")
+
+    def compare_session(self, _=None):
+        session = self.compare_selector.currentData()
+        current = self.history_session
+        self.comparison_status.setText(
+            "Compare finalized sessions with matching camera, scene and settings."
+        )
+        if not session or not current:
+            return
+        database = Path(self.config.analytics.database)
+
+        def loaded(data):
+            if self.history_session != current or self.compare_selector.currentData() != session:
+                return
+            previous, selected = data["session"], (self.report_data or {}).get("session")
+            if not comparable_sessions(previous, selected):
+                self.comparison_status.setText(
+                    "These sessions do not have matching analysis settings."
+                )
+                return
+            if not json.loads(selected["scene_json"])["lines"]:
+                self.comparison_status.setText(
+                    "Counting was unavailable in both sessions: no counting lines were configured."
+                )
+                return
+            before = sum(row["count"] for row in data["counts"])
+            now = sum(row["count"] for row in self.report_data["counts"])
+            self.comparison_status.setText(
+                f"Crossing events: {now} in this session, {before} in the comparison "
+                f"({now - before:+d}). Session lengths may differ; use the flow chart for rates."
+            )
+
+        self.launch_job("comparison", lambda: read_history(database, session=session), loaded)
+
+    def show_export_folder(self):
+        from PySide6.QtCore import QUrl
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_export_dir)))
+
+    def update_camera_summary(self):
+        lines = []
+        for source in self.sources:
+            if source.kind == "video":
+                continue
+            pane = self.panes[source.name]
+            result = self.latest.get(source.name)
+            pipeline = self.pipelines.get(source.name)
+            lines.append(f"{source.name}: {pane.status.text()}")
+            if result is not None:
+                height, width = result.image.shape[:2]
+                lines.append(f"Last received format: {width} × {height} pixels.")
+            if pipeline and pipeline.capture.capture_fps:
+                lines.append(f"Measured capture: {pipeline.capture.capture_fps:.1f} frames/s.")
+        self.camera_summary.setText(
+            "\n".join(lines)
+            or "No camera is open. Use Manage cameras to find an available Mac or iPhone camera."
+        )
+
+    def copy_diagnostics(self):
+        text = self.diagnostics.textCursor().selectedText() or self.diagnostics.toPlainText()
+        QApplication.clipboard().setText(text.replace("\u2029", "\n"))
+        self.statusBar().showMessage("Diagnostics copied. Review local paths before sharing.")
+
+    def activate_workspace_action(self):
+        self.tabs.setCurrentIndex(self.sender().data())
+
+    def open_preferences(self):
+        self.tabs.setCurrentIndex(2)
+        self.appearance.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def focus_source(self):
+        self.tabs.setCurrentIndex(0)
+        self.source_selector.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="ROADLENS native desktop")
@@ -1239,7 +2111,7 @@ def main(argv=None):
     app.setApplicationName("ROADLENS")
     app.setOrganizationName("ROADLENS")
     app.setApplicationVersion("0.1.0")
-    app.setFont(QFont("Helvetica", 12))
+    app.setFont(font())
     args.data_dir = args.data_dir.expanduser().resolve()
     args.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     configure_logging("INFO", args.data_dir / "logs/roadlens.log")
